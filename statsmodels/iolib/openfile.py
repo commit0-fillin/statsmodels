@@ -46,4 +46,17 @@ def get_file_obj(fname, mode='r', encoding=None):
     already a file-like object, the returned context manager *will not
     close the file*.
     """
-    pass
+    import gzip
+    
+    if _is_string_like(fname):
+        fname = Path(fname)
+    
+    if isinstance(fname, Path):
+        if fname.suffix == '.gz':
+            return gzip.open(fname, mode=mode)
+        else:
+            return open(fname, mode=mode, encoding=encoding)
+    elif hasattr(fname, 'read') or hasattr(fname, 'write'):
+        return EmptyContextManager(fname)
+    else:
+        raise ValueError(f"File object {fname} is not recognized")
