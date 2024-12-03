@@ -146,4 +146,30 @@ class GLSHet(WLS):
         calculation. Calling fit_iterative(maxiter) ones does not do any
         redundant recalculations (whitening or calculating pinv_wexog).
         """
-        pass
+        self.history = {'params': [], 'weights': []}
+        
+        for iteration in range(maxiter):
+            # Fit the model using current weights
+            model = self.fit()
+            self.history['params'].append(model.params)
+            self.history['weights'].append(self.weights)
+            
+            if iteration == maxiter - 1:
+                break
+            
+            # Estimate new weights based on residuals
+            resid = model.resid
+            exog_var = self.exog_var
+            
+            # Apply link function to squared residuals
+            y = self.link(resid**2)
+            
+            # Fit OLS model to estimate variance
+            variance_model = OLS(y, exog_var).fit()
+            
+            # Update weights using inverse link function
+            new_weights = 1 / self.linkinv(exog_var.dot(variance_model.params))
+            self.weights = new_weights / new_weights.mean()  # Normalize weights
+        
+        self.results_residual_regression = variance_model
+        return model
