@@ -82,7 +82,7 @@ class LinearConstraints:
         instance of this class
 
         """
-        pass
+        return cls(lc.coefs, lc.constants, lc.variable_names)
 
 class TransformRestriction:
     """Transformation for linear constraints `R params = q`
@@ -160,7 +160,8 @@ class TransformRestriction:
         If the restriction is not homogeneous, i.e. q is not equal to zero,
         then this is an affine transform.
         """
-        pass
+        params_reduced = np.asarray(params_reduced)
+        return self.transf_mat.dot(params_reduced) + self.constant
 
     def reduce(self, params):
         """transform from the full to the reduced parameter space
@@ -178,7 +179,13 @@ class TransformRestriction:
         This transform can be applied to the original parameters as well
         as to the data. If params is 2-d, then each row is transformed.
         """
-        pass
+        params = np.asarray(params)
+        if params.ndim == 1:
+            return self.transf_mat.T.dot(params - self.constant)
+        elif params.ndim == 2:
+            return (params - self.constant).dot(self.transf_mat)
+        else:
+            raise ValueError("params must be 1-d or 2-d")
 
 def transform_params_constraint(params, Sinv, R, q):
     """find the parameters that statisfy linear constraint from unconstrained
@@ -212,7 +219,17 @@ def transform_params_constraint(params, Sinv, R, q):
     My guess is that this is the point in the subspace that satisfies
     the constraint that has minimum Mahalanobis distance. Proof ?
     """
-    pass
+    params = np.asarray(params)
+    R = np.asarray(R)
+    q = np.asarray(q)
+    
+    RSinvR = R.dot(Sinv).dot(R.T)
+    RSinvR_inv = np.linalg.inv(RSinvR)
+    
+    lambda_ = RSinvR_inv.dot(R.dot(params) - q)
+    params_constraint = params - Sinv.dot(R.T).dot(lambda_)
+    
+    return params_constraint
 
 def fit_constrained(model, constraint_matrix, constraint_values, start_params=None, fit_kwds=None):
     """fit model subject to linear equality constraints
@@ -270,7 +287,29 @@ def fit_constrained(model, constraint_matrix, constraint_values, start_params=No
 
     Requires a model that implement an offset option.
     """
-    pass
+    if fit_kwds is None:
+        fit_kwds = {}
+
+    R, q = constraint_matrix, constraint_values
+    tr = TransformRestriction(R, q)
+
+    exog_t = tr.reduce(model.exog)
+    offset = model.offset + tr.constant if model.offset is not None else tr.constant
+    mod_t = model.__class__(model.endog, exog_t, offset=offset)
+
+    if start_params is not None:
+        start_params_t = tr.reduce(start_params)
+    else:
+        start_params_t = None
+
+    res_t = mod_t.fit(start_params=start_params_t, **fit_kwds)
+
+    params = tr.expand(res_t.params)
+    cov_params = tr.transf_mat.dot(res_t.cov_params()).dot(tr.transf_mat.T)
+
+    res_constr = res_t
+
+    return params, cov_params, res_constr
 
 def fit_constrained_wrap(model, constraints, start_params=None, **fit_kwds):
     """fit_constraint that returns a results instance
@@ -285,4 +324,18 @@ def fit_constrained_wrap(model, constraints, start_params=None, **fit_kwds):
     This is the prototype for the fit_constrained method that has been added
     to Poisson and GLM.
     """
-    pass
+    if isinstance(constraints, tuple):
+        R, q = constraints
+    else:
+        R, q = model.get_constraint_matrix(constraints)
+
+    params, cov_params, res_constr = fit_constrained(model, R, q, start_params, fit_kwds)
+
+    # Create a results instance
+    res = model.results_class(model, params, cov_params)
+    res._results = res_constr
+    res.results_constrained = res_constr
+    res.constraint_matrix = R
+    res.constraint_values = q
+
+    return res
