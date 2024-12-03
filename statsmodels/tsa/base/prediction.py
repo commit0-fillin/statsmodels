@@ -48,27 +48,37 @@ class PredictionResults:
     @property
     def row_labels(self):
         """The row labels used in pandas-types."""
-        pass
+        return self._row_labels
 
     @property
     def predicted_mean(self):
         """The predicted mean"""
-        pass
+        if self._use_pandas:
+            return pd.Series(self._predicted_mean, index=self._row_labels)
+        return self._predicted_mean
 
     @property
     def var_pred_mean(self):
         """The variance of the predicted mean"""
-        pass
+        if self._use_pandas:
+            return pd.Series(self._var_pred_mean, index=self._row_labels)
+        return self._var_pred_mean
 
     @property
     def se_mean(self):
         """The standard deviation of the predicted mean"""
-        pass
+        se = np.sqrt(self.var_pred_mean)
+        if self._use_pandas:
+            return pd.Series(se, index=self._row_labels)
+        return se
 
     @property
     def tvalues(self):
         """The ratio of the predicted mean to its standard deviation"""
-        pass
+        tvalues = self.predicted_mean / self.se_mean
+        if self._use_pandas:
+            return pd.Series(tvalues, index=self._row_labels)
+        return tvalues
 
     def t_test(self, value=0, alternative='two-sided'):
         """
@@ -90,7 +100,18 @@ class PredictionResults:
             the attribute of the instance, specified in `__init__`. Default
             if not specified is the normal distribution.
         """
-        pass
+        stat = (self.predicted_mean - value) / self.se_mean
+        
+        if alternative == 'two-sided':
+            pvalue = 2 * (1 - self.dist.cdf(np.abs(stat), *self.dist_args))
+        elif alternative == 'larger':
+            pvalue = 1 - self.dist.cdf(stat, *self.dist_args)
+        elif alternative == 'smaller':
+            pvalue = self.dist.cdf(stat, *self.dist_args)
+        else:
+            raise ValueError("alternative must be 'two-sided', 'larger' or 'smaller'")
+        
+        return stat, pvalue
 
     def conf_int(self, alpha=0.05):
         """
@@ -110,7 +131,13 @@ class PredictionResults:
             The array has the lower and the upper limit of the prediction
             interval in the columns.
         """
-        pass
+        q = self.dist.ppf(1 - alpha / 2, *self.dist_args)
+        lower = self.predicted_mean - q * self.se_mean
+        upper = self.predicted_mean + q * self.se_mean
+        
+        if self._use_pandas:
+            return pd.DataFrame({'lower': lower, 'upper': upper}, index=self._row_labels)
+        return np.column_stack((lower, upper))
 
     def summary_frame(self, alpha=0.05):
         """
@@ -131,4 +158,18 @@ class PredictionResults:
         Fixes alpha to 0.05 so that the confidence interval should have 95%
         coverage.
         """
-        pass
+        ci = self.conf_int(alpha=alpha)
+        if self._use_pandas:
+            return pd.DataFrame({
+                'mean': self.predicted_mean,
+                'mean_se': self.se_mean,
+                'mean_ci_lower': ci['lower'],
+                'mean_ci_upper': ci['upper']
+            }, index=self._row_labels)
+        else:
+            return pd.DataFrame({
+                'mean': self.predicted_mean,
+                'mean_se': self.se_mean,
+                'mean_ci_lower': ci[:, 0],
+                'mean_ci_upper': ci[:, 1]
+            })
