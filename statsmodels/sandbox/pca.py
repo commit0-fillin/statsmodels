@@ -30,19 +30,27 @@ class Pca:
         """
         returns the covariance matrix for the dataset
         """
-        pass
+        return np.cov(self.A.T)
 
     def getEigensystem(self):
         """
         returns a tuple of (eigenvalues,eigenvectors) for the data set.
         """
-        pass
+        cov_matrix = self.getCovarianceMatrix()
+        eigenvalues, eigenvectors = np.linalg.eig(cov_matrix)
+        # Sort eigenvalues and eigenvectors in descending order
+        idx = eigenvalues.argsort()[::-1]
+        eigenvalues = eigenvalues[idx]
+        eigenvectors = eigenvectors[:, idx]
+        return eigenvalues, eigenvectors
 
     def getEnergies(self):
         """
         "energies" are just normalized eigenvectors
         """
-        pass
+        eigenvalues, _ = self.getEigensystem()
+        total_energy = np.sum(eigenvalues)
+        return eigenvalues / total_energy
 
     def plot2d(self, ix=0, iy=1, clf=True):
         """
@@ -52,7 +60,25 @@ class Pca:
         ix specifies which p-dimension to put on the x-axis of the plot
         and iy specifies which to put on the y-axis (0-indexed)
         """
-        pass
+        import matplotlib.pyplot as plt
+
+        if clf:
+            plt.clf()
+
+        # Plot data points
+        plt.scatter(self.A[:, ix], self.A[:, iy], c='b', alpha=0.5)
+
+        # Plot principal components
+        _, eigenvectors = self.getEigensystem()
+        for i in range(2):
+            plt.quiver(0, 0, eigenvectors[ix, i], eigenvectors[iy, i],
+                       angles='xy', scale_units='xy', scale=1, color=self._colors[i])
+
+        plt.xlabel(f'PC{ix+1}')
+        plt.ylabel(f'PC{iy+1}')
+        plt.title('2D PCA Plot')
+        plt.axis('equal')
+        plt.show()
 
     def plot3d(self, ix=0, iy=1, iz=2, clf=True):
         """
@@ -62,7 +88,26 @@ class Pca:
         ix, iy, and iz specify which of the input p-dimensions to place on each of
         the x,y,z axes, respectively (0-indexed).
         """
-        pass
+        from mayavi import mlab
+
+        if clf:
+            mlab.clf()
+
+        # Plot data points
+        mlab.points3d(self.A[:, ix], self.A[:, iy], self.A[:, iz], scale_factor=0.1)
+
+        # Plot principal components
+        _, eigenvectors = self.getEigensystem()
+        for i in range(3):
+            mlab.quiver3d(0, 0, 0, 
+                          eigenvectors[ix, i], eigenvectors[iy, i], eigenvectors[iz, i], 
+                          color=self._colors[i], scale_factor=1)
+
+        mlab.xlabel(f'PC{ix+1}')
+        mlab.ylabel(f'PC{iy+1}')
+        mlab.zlabel(f'PC{iz+1}')
+        mlab.title('3D PCA Plot')
+        mlab.show()
 
     def sigclip(self, sigs):
         """
@@ -73,7 +118,17 @@ class Pca:
         specifies the number of standard deviations along each of the
         p dimensions.
         """
-        pass
+        if np.isscalar(sigs):
+            sigs = np.full(self.p, sigs)
+        elif len(sigs) != self.p:
+            raise ValueError("sigs must be a scalar or have length equal to the number of dimensions")
+
+        mean = np.mean(self.A, axis=0)
+        std = np.std(self.A, axis=0)
+        
+        mask = np.all(np.abs(self.A - mean) <= sigs * std, axis=1)
+        self.A = self.A[mask]
+        self.n = self.A.shape[0]
 
     def project(self, vals=None, enthresh=None, nPCs=None, cumen=None):
         """
@@ -86,7 +141,24 @@ class Pca:
 
         returns n,p(>threshold) dimension array
         """
-        pass
+        if vals is None:
+            vals = self.A
+
+        eigenvalues, eigenvectors = self.getEigensystem()
+        energies = self.getEnergies()
+        cumulative_energy = np.cumsum(energies)
+
+        if enthresh is not None:
+            n_components = np.sum(energies > enthresh)
+        elif nPCs is not None:
+            n_components = min(nPCs, self.p)
+        elif cumen is not None:
+            n_components = np.sum(cumulative_energy <= cumen) + 1
+        else:
+            n_components = self.p
+
+        projected = np.dot(vals - np.mean(vals, axis=0), eigenvectors[:, :n_components])
+        return projected
 
     def deproject(self, A, normed=True):
         """
@@ -94,7 +166,16 @@ class Pca:
 
         output is p X n
         """
-        pass
+        _, eigenvectors = self.getEigensystem()
+        q = A.shape[1]
+        
+        if normed:
+            mean = np.mean(self._origA, axis=0)
+            deprojected = np.dot(A, eigenvectors[:, :q].T) + mean
+        else:
+            deprojected = np.dot(A, eigenvectors[:, :q].T)
+        
+        return deprojected.T
 
     def subtractPC(self, pc, vals=None):
         """
@@ -103,4 +184,19 @@ class Pca:
         if vals is None, the source data is self.A, else whatever is in vals
         (which must be p x m)
         """
-        pass
+        if vals is None:
+            vals = self.A
+        
+        if np.isscalar(pc):
+            pc = [pc]
+        
+        _, eigenvectors = self.getEigensystem()
+        
+        mean = np.mean(vals, axis=0)
+        centered_vals = vals - mean
+        
+        for i in pc:
+            component = np.outer(np.dot(centered_vals, eigenvectors[:, i]), eigenvectors[:, i])
+            centered_vals -= component
+        
+        return centered_vals + mean
