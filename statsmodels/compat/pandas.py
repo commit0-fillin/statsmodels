@@ -41,7 +41,7 @@ def is_int_index(index: pd.Index) -> bool:
     bool
         True if is an index with a standard integral type
     """
-    pass
+    return index.dtype.kind in 'iu'
 
 def is_float_index(index: pd.Index) -> bool:
     """
@@ -57,7 +57,7 @@ def is_float_index(index: pd.Index) -> bool:
     bool
         True if an index with a standard numpy floating dtype
     """
-    pass
+    return index.dtype.kind == 'f'
 try:
     from pandas._testing import makeDataFrame as make_dataframe
 except ImportError:
@@ -67,13 +67,24 @@ except ImportError:
         """
         Generate an array of byte strings.
         """
-        pass
+        chars = np.array(list(string.ascii_letters + string.digits))
+        retval = (chars[np.random.randint(0, len(chars), size=(size, nchars))]
+                  .view((str, nchars))
+                  .astype(dtype))
+        return retval
 
     def make_dataframe():
         """
-        Simple verion of pandas._testing.makeDataFrame
+        Simple version of pandas._testing.makeDataFrame
         """
-        pass
+        index = pd.date_range('1/1/2000', periods=100)
+        data = {
+            'A': np.random.randn(100),
+            'B': np.random.randn(100),
+            'C': np.random.randn(100),
+            'D': np.random.randn(100)
+        }
+        return pd.DataFrame(data, index=index)
 
 def to_numpy(po: pd.DataFrame) -> np.ndarray:
     """
@@ -81,14 +92,17 @@ def to_numpy(po: pd.DataFrame) -> np.ndarray:
 
     Parameters
     ----------
-    po : Pandas obkect
+    po : Pandas object
 
     Returns
     -------
     ndarray
         A numpy array
     """
-    pass
+    if hasattr(po, 'to_numpy'):
+        return po.to_numpy()
+    else:
+        return po.values
 MONTH_END = 'M' if PD_LT_2_2_0 else 'ME'
 QUARTER_END = 'Q' if PD_LT_2_2_0 else 'QE'
 YEAR_END = 'Y' if PD_LT_2_2_0 else 'YE'
