@@ -62,12 +62,16 @@ class PoissonGMLE(GenericLikelihoodModel):
         -----
         .. math:: \\ln L=\\sum_{i=1}^{n}\\left[-\\lambda_{i}+y_{i}x_{i}^{\\prime}\\beta-\\ln y_{i}!\\right]
         """
-        pass
+        XB = np.dot(self.exog, params)
+        endog = self.endog
+        L = np.exp(XB) - endog * XB + np.log(factorial(endog))
+        return L
 
     def predict_distribution(self, exog):
         """return frozen scipy.stats distribution with mu at estimated prediction
         """
-        pass
+        mu = np.exp(np.dot(exog, self.params))
+        return stats.poisson(mu)
 
 class PoissonOffsetGMLE(GenericLikelihoodModel):
     """Maximum Likelihood Estimation of Poisson Model
@@ -108,7 +112,10 @@ class PoissonOffsetGMLE(GenericLikelihoodModel):
         -----
         .. math:: \\ln L=\\sum_{i=1}^{n}\\left[-\\lambda_{i}+y_{i}x_{i}^{\\prime}\\beta-\\ln y_{i}!\\right]
         """
-        pass
+        XB = np.dot(self.exog, params) + self.offset
+        endog = self.endog
+        L = np.exp(XB) - endog * XB + np.log(factorial(endog))
+        return L
 
 class PoissonZiGMLE(GenericLikelihoodModel):
     """Maximum Likelihood Estimation of Poisson Model
@@ -158,4 +165,13 @@ class PoissonZiGMLE(GenericLikelihoodModel):
         -----
         .. math:: \\ln L=\\sum_{i=1}^{n}\\left[-\\lambda_{i}+y_{i}x_{i}^{\\prime}\\beta-\\ln y_{i}!\\right]
         """
-        pass
+        beta = params[:-1]
+        zi = params[-1]
+        XB = np.dot(self.exog, beta) + self.offset
+        endog = self.endog
+        mu = np.exp(XB)
+        
+        L = np.where(endog == 0,
+                     np.log(zi + (1 - zi) * np.exp(-mu)),
+                     np.log(1 - zi) - mu + endog * np.log(mu) - np.log(factorial(endog)))
+        return -L
