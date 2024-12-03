@@ -48,7 +48,19 @@ def aitchison_aitken(h, Xi, x, num_levels=None):
     .. [*] Racine, Jeff. "Nonparametric Econometrics: A Primer," Foundation
            and Trends in Econometrics: Vol 3: No 1, pp1-88., 2008.
     """
-    pass
+    if num_levels is None:
+        c = np.max(Xi) + 2  # number of levels + 1
+    else:
+        c = num_levels + 1
+
+    kernel_value = np.zeros_like(Xi, dtype=float)
+    for j in range(Xi.shape[1]):
+        lambda_j = h[j]
+        kernel_value[:, j] = np.where(Xi[:, j] == x[j],
+                                      1 - lambda_j,
+                                      lambda_j / (c - 1))
+    
+    return kernel_value
 
 def wang_ryzin(h, Xi, x):
     """
@@ -83,7 +95,18 @@ def wang_ryzin(h, Xi, x):
     .. [*] M.-C. Wang and J. van Ryzin, "A class of smooth estimators for
            discrete distributions", Biometrika, vol. 68, pp. 301-309, 1981.
     """
-    pass
+    h = np.atleast_1d(h)
+    x = np.atleast_1d(x)
+    
+    kernel_value = np.zeros_like(Xi, dtype=float)
+    for j in range(Xi.shape[1]):
+        lambda_j = h[j]
+        diff = np.abs(Xi[:, j] - x[j])
+        kernel_value[:, j] = np.where(diff == 0,
+                                      1 - lambda_j,
+                                      0.5 * (1 - lambda_j) * lambda_j ** diff)
+    
+    return kernel_value
 
 def gaussian(h, Xi, x):
     """
@@ -102,7 +125,9 @@ def gaussian(h, Xi, x):
     kernel_value : ndarray, shape (nobs, K)
         The value of the kernel function at each training point for each var.
     """
-    pass
+    z = (Xi - x[:, np.newaxis]) / h[:, np.newaxis]
+    kernel_value = (1 / np.sqrt(2 * np.pi)) * np.exp(-0.5 * z**2)
+    return kernel_value
 
 def tricube(h, Xi, x):
     """
@@ -121,11 +146,15 @@ def tricube(h, Xi, x):
     kernel_value : ndarray, shape (nobs, K)
         The value of the kernel function at each training point for each var.
     """
-    pass
+    z = np.abs((Xi - x[:, np.newaxis]) / h[:, np.newaxis])
+    kernel_value = np.where(z <= 1, 70/81 * (1 - z**3)**3, 0)
+    return kernel_value
 
 def gaussian_convolution(h, Xi, x):
     """ Calculates the Gaussian Convolution Kernel """
-    pass
+    z = (Xi - x[:, np.newaxis]) / h[:, np.newaxis]
+    kernel_value = 0.5 * (erf(z / np.sqrt(2)) + 1)
+    return kernel_value
 
 def aitchison_aitken_reg(h, Xi, x):
     """
@@ -133,7 +162,14 @@ def aitchison_aitken_reg(h, Xi, x):
 
     Suggested by Li and Racine.
     """
-    pass
+    kernel_value = np.zeros_like(Xi, dtype=float)
+    for j in range(Xi.shape[1]):
+        lambda_j = h[j]
+        kernel_value[:, j] = np.where(Xi[:, j] == x[j],
+                                      1,
+                                      lambda_j)
+    
+    return kernel_value
 
 def wang_ryzin_reg(h, Xi, x):
     """
@@ -141,4 +177,13 @@ def wang_ryzin_reg(h, Xi, x):
 
     Suggested by Li and Racine in [1] ch.4
     """
-    pass
+    h = np.atleast_1d(h)
+    x = np.atleast_1d(x)
+    
+    kernel_value = np.zeros_like(Xi, dtype=float)
+    for j in range(Xi.shape[1]):
+        lambda_j = h[j]
+        diff = np.abs(Xi[:, j] - x[j])
+        kernel_value[:, j] = lambda_j ** diff
+    
+    return kernel_value
