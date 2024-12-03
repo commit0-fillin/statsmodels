@@ -46,7 +46,7 @@ class VarianceFunction:
         """
         Derivative of the variance function v'(mu)
         """
-        pass
+        return np.zeros_like(mu)
 constant = VarianceFunction()
 constant.__doc__ = '\nThe call method of constant returns a constant variance, i.e., a vector of\nones.\n\nconstant is an alias of VarianceFunction()\n'
 
@@ -100,7 +100,7 @@ class Power:
 
         May be undefined at zero.
         """
-        pass
+        return self.power * np.power(np.fabs(mu), self.power - 1) * np.sign(mu)
 mu = Power()
 mu.__doc__ = '\nReturns np.fabs(mu)\n\nNotes\n-----\nThis is an alias of Power()\n'
 mu_squared = Power(power=2)
@@ -162,7 +162,8 @@ class Binomial:
         """
         Derivative of the variance function v'(mu)
         """
-        pass
+        p = self._clean(mu / self.n)
+        return (1 - 2 * p)
 binary = Binomial()
 binary.__doc__ = '\nThe binomial variance function for n = 1\n\nNotes\n-----\nThis is an alias of Binomial(n=1)\n'
 
@@ -218,6 +219,6 @@ class NegativeBinomial:
         """
         Derivative of the negative binomial variance function.
         """
-        pass
+        return 1 + 2 * self.alpha * self._clean(mu)
 nbinom = NegativeBinomial()
 nbinom.__doc__ = '\nNegative Binomial variance function.\n\nNotes\n-----\nThis is an alias of NegativeBinomial(alpha=1.)\n'
