@@ -90,7 +90,30 @@ def lowess(endog, exog, frac=2.0 / 3, it=3):
     >>> z = lowess(y, x, frac= 1./3, it=0)
     >>> w = lowess(y, x, frac=1./3)
     """
-    pass
+    x, y = np.array(exog), np.array(endog)
+    
+    if exog.ndim != 1:
+        raise ValueError("exog must be 1-dimensional")
+    if endog.ndim != 1:
+        raise ValueError("endog must be 1-dimensional")
+    if len(exog) != len(endog):
+        raise ValueError("exog and endog must have same length")
+    
+    n = len(exog)
+    k = int(frac * n)
+    k = max(min(n, k), 1)  # ensure 1 <= k <= n
+    
+    # Sort the data
+    order = np.argsort(exog)
+    x, y = x[order], y[order]
+    
+    fitted = _lowess_initial_fit(x, y, k, n)
+    
+    # Perform iterative reweighting
+    for _ in range(it):
+        fitted = _lowess_robustify_fit(x, y, fitted, k, n)
+    
+    return np.column_stack((x, fitted))
 
 def _lowess_initial_fit(x_copy, y_copy, k, n):
     """
@@ -118,7 +141,29 @@ def _lowess_initial_fit(x_copy, y_copy, k, n):
         x-values
 
    """
-    pass
+    fitted = np.zeros(n)
+    weights = np.zeros((n, k))
+
+    for i in range(n):
+        left = max(0, i - k // 2)
+        right = min(n, left + k)
+        left = max(0, right - k)
+        x_neighborhood = x_copy[left:right]
+        y_neighborhood = y_copy[left:right]
+
+        weights_i = np.abs(x_neighborhood - x_copy[i])
+        max_weight = np.max(weights_i)
+        if max_weight > 0:
+            weights_i /= max_weight
+        _lowess_tricube(weights_i)
+        weights[i, :len(weights_i)] = weights_i
+
+        X = np.column_stack((np.ones_like(x_neighborhood), x_neighborhood - x_copy[i]))
+        W = np.diag(weights_i)
+        beta = lstsq(np.dot(W, X), np.dot(W, y_neighborhood), rcond=None)[0]
+        fitted[i] = beta[0]
+
+    return fitted, weights
 
 def _lowess_wt_standardize(weights, new_entries, x_copy_i, width):
     """
@@ -140,9 +185,9 @@ def _lowess_wt_standardize(weights, new_entries, x_copy_i, width):
     -------
     Nothing. The modifications are made to weight in place.
     """
-    pass
+    weights[:] = (new_entries - x_copy_i) / width
 
-def _lowess_robustify_fit(x_copy, y_copy, fitted, weights, k, n):
+def _lowess_robustify_fit(x_copy, y_copy, fitted, k, n):
     """
     Additional weighted local linear regressions, performed if
     iter>0. They take into account the sizes of the residuals,
@@ -156,10 +201,6 @@ def _lowess_robustify_fit(x_copy, y_copy, fitted, weights, k, n):
         The y-values/ endogenous part of the data being smoothed
     fitted : 1-d ndarray
         The fitted y-values from the previous iteration
-    weights : 2-d ndarray
-        An n by k array. The contribution to the weights in the
-        local linear fit coming from the distances between the
-        x-values
     k : int
         The number of data points which affect the linear fit for
         each estimated point
@@ -168,9 +209,41 @@ def _lowess_robustify_fit(x_copy, y_copy, fitted, weights, k, n):
 
    Returns
     -------
-    Nothing. The fitted values are modified in place.
+    new_fitted : 1-d ndarray
+        The updated fitted y-values
     """
-    pass
+    residuals = y_copy - fitted
+    s = np.median(np.abs(residuals))
+    if s == 0:
+        return fitted
+
+    for i in range(n):
+        left = max(0, i - k // 2)
+        right = min(n, left + k)
+        left = max(0, right - k)
+        x_neighborhood = x_copy[left:right]
+        y_neighborhood = y_copy[left:right]
+
+        weights = np.abs(x_neighborhood - x_copy[i])
+        max_weight = np.max(weights)
+        if max_weight > 0:
+            weights /= max_weight
+        _lowess_tricube(weights)
+
+        arg_sort = np.argsort(x_neighborhood)
+        x_neighborhood = x_neighborhood[arg_sort]
+        y_neighborhood = y_neighborhood[arg_sort]
+        weights = weights[arg_sort]
+
+        res = y_neighborhood - fitted[left:right]
+        weights *= _lowess_bisquare(res / (6 * s))
+
+        X = np.column_stack((np.ones_like(x_neighborhood), x_neighborhood - x_copy[i]))
+        W = np.diag(weights)
+        beta = lstsq(np.dot(W, X), np.dot(W, y_neighborhood), rcond=None)[0]
+        fitted[i] = beta[0]
+
+    return fitted
 
 def _lowess_update_nn(x, cur_nn, i):
     """
@@ -193,7 +266,12 @@ def _lowess_update_nn(x, cur_nn, i):
     -------
     Nothing. It modifies cur_nn in place.
     """
-    pass
+    while cur_nn[0] > 0 and x[i] - x[cur_nn[0]-1] < x[cur_nn[1]] - x[i]:
+        cur_nn[1] = cur_nn[0]
+        cur_nn[0] -= 1
+    while cur_nn[1] < len(x) - 1 and x[cur_nn[1]+1] - x[i] < x[i] - x[cur_nn[0]]:
+        cur_nn[0] = cur_nn[1]
+        cur_nn[1] += 1
 
 def _lowess_tricube(t):
     """
@@ -210,7 +288,8 @@ def _lowess_tricube(t):
     -------
     Nothing
     """
-    pass
+    t = np.abs(t)
+    t = np.where(t > 1, 0, (1 - t**3)**3)
 
 def _lowess_mycube(t):
     """
@@ -225,7 +304,7 @@ def _lowess_mycube(t):
     -------
     Nothing
     """
-    pass
+    t **= 3
 
 def _lowess_bisquare(t):
     """
@@ -239,6 +318,10 @@ def _lowess_bisquare(t):
 
     Returns
     -------
-    Nothing
+    result : ndarray
+        The result of applying the bisquare function to t
     """
-    pass
+    t = np.abs(t)
+    result = (1 - t**2)**2
+    result[t > 1] = 0
+    return result
