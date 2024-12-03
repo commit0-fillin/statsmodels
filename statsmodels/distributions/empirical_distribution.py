@@ -26,7 +26,11 @@ def _conf_set(F, alpha=0.05):
     ----------
     Wasserman, L. 2006. `All of Nonparametric Statistics`. Springer.
     """
-    pass
+    n = len(F)
+    epsilon = np.sqrt(-np.log(alpha/2) / (2*n))
+    lower = np.clip(F - epsilon, 0, 1)
+    upper = np.clip(F + epsilon, 0, 1)
+    return lower, upper
 
 class StepFunction:
     """
@@ -202,4 +206,12 @@ def monotone_fn_inverter(fn, x, vectorized=True, **keywords):
     and a set of x values, return an linearly interpolated approximation
     to its inverse from its values on x.
     """
-    pass
+    x = np.asarray(x)
+    y = fn(x, **keywords)
+    
+    if vectorized:
+        f = interp1d(y, x, bounds_error=False, assume_sorted=True)
+    else:
+        f = interp1d(y, x, bounds_error=False)
+    
+    return f
