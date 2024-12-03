@@ -39,4 +39,16 @@ def acovf_fft(x, demean=True):
     might work for nd in parallel with time along axis 0
 
     """
-    pass
+    from scipy import signal
+    
+    x = np.asarray(x)
+    if demean:
+        x = x - np.mean(x)
+    
+    n = len(x)
+    fft_acovf = signal.fftconvolve(x, x[::-1])
+    
+    # We only need the right half (including the middle point)
+    acovf = fft_acovf[n-1:] / n
+    
+    return acovf
