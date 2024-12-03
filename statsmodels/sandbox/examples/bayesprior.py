@@ -8,12 +8,32 @@ import numpy as np
 from matplotlib import pyplot as plt
 from scipy import stats, integrate
 from scipy.stats import rv_continuous
-from scipy.special import gammaln, gammaincinv, gammainc
+from scipy.special import gammaln, gammaincinv, gammainc, gamma
 from numpy import log, exp
 
 class igamma_gen(rv_continuous):
-    pass
-igamma = igamma_gen(a=0.0, name='invgamma', longname='An inverted gamma', shapes='a,b', extradoc='\n\nInverted gamma distribution\n\ninvgamma.pdf(x,a,b) = b**a*x**(-a-1)/gamma(a) * exp(-b/x)\nfor x > 0, a > 0, b>0.\n')
+    def _pdf(self, x, a, b):
+        return (b**a) * (x**(-a-1)) * np.exp(-b/x) / gamma(a)
+
+    def _cdf(self, x, a, b):
+        return gammainc(a, b/x)
+
+    def _ppf(self, q, a, b):
+        return b / gammaincinv(a, q)
+
+    def _stats(self, a, b):
+        mean = b / (a - 1) if a > 1 else np.inf
+        var = b**2 / ((a - 1)**2 * (a - 2)) if a > 2 else np.inf
+        skew = 4 * np.sqrt(a - 2) / (a - 3) if a > 3 else np.nan
+        kurtosis = 6 * (5*a - 11) / ((a - 3) * (a - 4)) if a > 4 else np.nan
+        return mean, var, skew, kurtosis
+igamma = igamma_gen(a=0.0, name='invgamma', longname='An inverted gamma', shapes='a,b', extradoc='''
+
+Inverted gamma distribution
+
+invgamma.pdf(x,a,b) = b**a*x**(-a-1)/gamma(a) * exp(-b/x)
+for x > 0, a > 0, b > 0.
+''')
 palpha = np.random.gamma(400.0, 0.005, size=10000)
 print('First moment: %s\nSecond moment: %s' % (palpha.mean(), palpha.std()))
 palpha = palpha[0]
