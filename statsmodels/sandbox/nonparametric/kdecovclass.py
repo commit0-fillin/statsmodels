@@ -25,8 +25,28 @@ class gaussian_kde_covfact(stats.gaussian_kde):
         scipy.stats.gaussian_kde.__init__(self, dataset)
 
     def _compute_covariance_(self):
-        """not used"""
-        pass
+        """Compute the covariance matrix for each Gaussian kernel"""
+        self.d, self.n = self.dataset.shape
+
+        if self.covfact == 'scotts':
+            self.covariance = np.atleast_2d(
+                np.cov(self.dataset, rowvar=1, bias=False) * \
+                (self.n ** (-1./(self.d+4)))
+            )
+        elif self.covfact == 'silverman':
+            self.covariance = np.atleast_2d(
+                np.cov(self.dataset, rowvar=1, bias=False) * \
+                (self.n * (self.d + 2) / 4.) ** (-2. / (self.d + 4))
+            )
+        elif np.isscalar(self.covfact):
+            self.covariance = np.atleast_2d(
+                np.cov(self.dataset, rowvar=1, bias=False) * self.covfact**2
+            )
+        else:
+            raise ValueError("covfact must be 'scotts', 'silverman', or a scalar")
+
+        self.inv_cov = np.linalg.inv(self.covariance)
+        self.norm_factor = np.sqrt(np.linalg.det(2*np.pi*self.covariance)) * self.n
 if __name__ == '__main__':
     n_basesample = 1000
     np.random.seed(8765678)
