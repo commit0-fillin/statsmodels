@@ -53,7 +53,17 @@ def target_rotation(A, H, full_rank=False):
 
     [3] Gower, Dijksterhuis (2004) - Procrustes problems
     """
-    pass
+    A_H = A.T @ H
+    
+    if full_rank:
+        # Use the analytical solution for full rank case
+        T = sp.linalg.inv(sp.linalg.sqrtm(A_H @ A_H.T)) @ A_H
+    else:
+        # Use SVD for the general case
+        U, _, Vt = np.linalg.svd(A_H)
+        T = U @ Vt
+    
+    return T
 
 def procrustes(A, H):
     """
@@ -90,7 +100,9 @@ def procrustes(A, H):
     [1] Navarra, Simoncini (2010) - A guide to empirical orthogonal functions
     for climate data analysis
     """
-    pass
+    A_H = A.T @ H
+    T = sp.linalg.inv(sp.linalg.sqrtm(A_H @ A_H.T)) @ A_H
+    return T
 
 def promax(A, k=2):
     """
@@ -128,4 +140,26 @@ def promax(A, k=2):
     [2] Navarra, Simoncini (2010) - A guide to empirical orthogonal functions
     for climate data analysis
     """
-    pass
+    from scipy.stats import special_ortho_group
+    
+    # Step 1: Perform varimax rotation
+    V, _ = sp.stats.ortho_group.rvs(A.shape[1]), None
+    for _ in range(1000):  # Max iterations for varimax
+        D = np.diag(np.sum(V**2, axis=0))
+        M = A @ V @ np.linalg.inv(D)
+        U, _, Vt = np.linalg.svd(A.T @ (M**3 - M @ D / A.shape[0]))
+        V_new = U @ Vt
+        if np.allclose(V, V_new):
+            break
+        V = V_new
+    
+    # Step 2: Construct rotation target matrix
+    H = np.abs(V)**k * np.sign(V)
+    
+    # Step 3: Perform procrustes rotation
+    T = procrustes(A, H)
+    
+    # Step 4: Determine the patterns
+    P = A @ T
+    
+    return P, T
