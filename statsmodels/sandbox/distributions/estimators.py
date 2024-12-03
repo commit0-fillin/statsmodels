@@ -103,7 +103,11 @@ def gammamomentcond(distfn, params, mom2, quantile=None):
     first test version, quantile argument not used
 
     """
-    pass
+    def cond(params):
+        alpha, beta = params
+        mean, var = distfn.stats(alpha, scale=beta, moments='mv')
+        return np.array([mean - mom2[0], var - mom2[1]])
+    return cond
 
 def gammamomentcond2(distfn, params, mom2, quantile=None):
     """estimate distribution parameters based method of moments (mean,
@@ -121,7 +125,9 @@ def gammamomentcond2(distfn, params, mom2, quantile=None):
     The only difference to previous function is return type.
 
     """
-    pass
+    alpha, beta = params
+    mean, var = distfn.stats(alpha, scale=beta, moments='mv')
+    return np.array([mean - mom2[0], var - mom2[1]])
 
 def momentcondunbound(distfn, params, mom2, quantile=None):
     """moment conditions for estimating distribution parameters using method
@@ -134,7 +140,15 @@ def momentcondunbound(distfn, params, mom2, quantile=None):
         difference between theoretical and empirical moments and quantiles
 
     """
-    pass
+    shape, loc, scale = params
+    mean, var = distfn.stats(shape, loc, scale, moments='mv')
+    diff = [mean - mom2[0], var - mom2[1]]
+    
+    if quantile is not None:
+        q, xq = quantile
+        diff.append(distfn.ppf(q, shape, loc, scale) - xq)
+    
+    return np.array(diff)
 
 def momentcondunboundls(distfn, params, mom2, quantile=None, shape=None):
     """moment conditions for estimating loc and scale of a distribution
@@ -146,7 +160,17 @@ def momentcondunboundls(distfn, params, mom2, quantile=None, shape=None):
         difference between theoretical and empirical moments or quantiles
 
     """
-    pass
+    loc, scale = params
+    if quantile is None:
+        mean, var = distfn.stats(shape, loc, scale, moments='mv')
+        return np.array([mean - mom2[0], var - mom2[1]])
+    else:
+        q1, q2 = quantile[0]
+        x1, x2 = quantile[1]
+        return np.array([
+            distfn.ppf(q1, shape, loc, scale) - x1,
+            distfn.ppf(q2, shape, loc, scale) - x2
+        ])
 
 def momentcondquant(distfn, params, mom2, quantile=None, shape=None):
     """moment conditions for estimating distribution parameters by matching
@@ -163,7 +187,17 @@ def momentcondquant(distfn, params, mom2, quantile=None, shape=None):
     moments.
 
     """
-    pass
+    if shape is None:
+        shape, loc, scale = params
+    else:
+        loc, scale = params
+    
+    if quantile is None:
+        raise ValueError("Quantiles must be provided for this method")
+    
+    q, xq = quantile
+    theoretical_quantiles = distfn.ppf(q, shape, loc, scale)
+    return theoretical_quantiles - xq
 
 def fitbinned(distfn, freq, binedges, start, fixed=None):
     """estimate parameters of distribution function for binned data using MLE
@@ -191,7 +225,13 @@ def fitbinned(distfn, freq, binedges, start, fixed=None):
     added factorial
 
     """
-    pass
+    def loglike(params):
+        cdf = distfn.cdf(binedges, *params)
+        prob = np.diff(cdf)
+        return -np.sum(freq * np.log(prob)) + np.sum(special.gammaln(freq + 1))
+
+    res = optimize.minimize(loglike, start, method='Nelder-Mead')
+    return res.x
 
 def fitbinnedgmm(distfn, freq, binedges, start, fixed=None, weightsoptimal=True):
     """estimate parameters of distribution function for binned data using GMM
@@ -224,7 +264,21 @@ def fitbinnedgmm(distfn, freq, binedges, start, fixed=None, weightsoptimal=True)
     added factorial
 
     """
-    pass
+    def moment_conditions(params):
+        cdf = distfn.cdf(binedges, *params)
+        prob = np.diff(cdf)
+        return freq / np.sum(freq) - prob
+
+    def objective(params):
+        g = moment_conditions(params)
+        if weightsoptimal:
+            W = np.linalg.inv(np.outer(g, g))
+        else:
+            W = np.eye(len(g))
+        return g.dot(W).dot(g)
+
+    res = optimize.minimize(objective, start, method='Nelder-Mead')
+    return res.x
 'Estimating Parameters of Log-Normal Distribution with Maximum\nLikelihood and Maximum Product-of-Spacings\n\nMPS definiton from JKB page 233\n\nCreated on Tue May 11 13:52:50 2010\nAuthor: josef-pktd\nLicense: BSD\n'
 
 def logmps(params, xsorted, dist):
@@ -249,7 +303,9 @@ def logmps(params, xsorted, dist):
     -----
     MPS definiton from JKB page 233
     """
-    pass
+    cdf = np.r_[0, dist.cdf(xsorted, *params), 1]
+    spacings = np.diff(cdf)
+    return -np.sum(np.log(spacings))
 
 def getstartparams(dist, data):
     """get starting values for estimation of distribution parameters
@@ -270,7 +326,16 @@ def getstartparams(dist, data):
         the distribution given the data, including loc and scale
 
     """
-    pass
+    if hasattr(dist, 'fitstart'):
+        return dist.fitstart(data)
+    else:
+        # Use method of moments for a rough estimate
+        m, v = data.mean(), data.var()
+        s = np.sqrt(v)
+        loc = m - s
+        scale = s
+        shape = 1.0  # default shape parameter
+        return np.array([shape, loc, scale])
 
 def fit_mps(dist, data, x0=None):
     """Estimate distribution parameters with Maximum Product-of-Spacings
@@ -292,7 +357,16 @@ def fit_mps(dist, data, x0=None):
 
 
     """
-    pass
+    xsorted = np.sort(data)
+    
+    if x0 is None:
+        x0 = getstartparams(dist, data)
+    
+    def objective(params):
+        return logmps(params, xsorted, dist)
+    
+    res = optimize.minimize(objective, x0, method='Nelder-Mead')
+    return res.x
 if __name__ == '__main__':
     print('\n\nExample: gamma Distribution')
     print('---------------------------')
