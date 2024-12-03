@@ -56,13 +56,65 @@ def GPA(A, ff=None, vgQ=None, T=None, max_tries=501, rotation_method='orthogonal
         stop criterion, algorithm stops if Frobenius norm of gradient is
         smaller then tol
     """
-    pass
+    if T is None:
+        T = np.eye(A.shape[1])
+    
+    if vgQ is None and ff is None:
+        raise ValueError("Either vgQ or ff must be provided")
+    
+    for i in range(max_tries):
+        L = rotateA(A, T, rotation_method)
+        
+        if vgQ:
+            f, Gq = vgQ(A=A, T=T, L=L)
+        else:
+            f = ff(A=A, T=T, L=L)
+            Gq = Gf(T, lambda T: ff(A=A, T=T, L=rotateA(A, T, rotation_method)))
+        
+        G = Gq if rotation_method == 'orthogonal' else np.dot(Gq, T.T)
+        
+        if np.linalg.norm(G, 'fro') < tol:
+            break
+        
+        if rotation_method == 'orthogonal':
+            M = np.dot(T.T, G) - np.dot(G.T, T)
+            S = -M
+        else:
+            M = np.dot(T.T, G)
+            S = -2 * M
+        
+        alpha = 1
+        for j in range(10):
+            T_new = T - alpha * S
+            if rotation_method == 'oblique':
+                T_new = T_new / np.sqrt(np.sum(T_new**2, axis=0))
+            L_new = rotateA(A, T_new, rotation_method)
+            if vgQ:
+                f_new, _ = vgQ(A=A, T=T_new, L=L_new)
+            else:
+                f_new = ff(A=A, T=T_new, L=L_new)
+            if f_new < f:
+                break
+            alpha /= 2
+        
+        T = T_new
+    
+    return T, L, i+1
 
 def Gf(T, ff):
     """
     Subroutine for the gradient of f using numerical derivatives.
     """
-    pass
+    eps = np.sqrt(np.finfo(float).eps)
+    G = np.zeros_like(T)
+    for i in range(T.shape[0]):
+        for j in range(T.shape[1]):
+            T_plus = T.copy()
+            T_plus[i, j] += eps
+            T_minus = T.copy()
+            T_minus[i, j] -= eps
+            G[i, j] = (ff(T_plus) - ff(T_minus)) / (2 * eps)
+    return G
 
 def rotateA(A, T, rotation_method='orthogonal'):
     """
@@ -72,7 +124,12 @@ def rotateA(A, T, rotation_method='orthogonal'):
     rotations relax the orthogonality constraint in order to gain simplicity
     in the interpretation.
     """
-    pass
+    if rotation_method == 'orthogonal':
+        return np.dot(A, T)
+    elif rotation_method == 'oblique':
+        return np.dot(A, np.linalg.inv(T.T))
+    else:
+        raise ValueError("rotation_method should be either 'orthogonal' or 'oblique'")
 
 def oblimin_objective(L=None, A=None, T=None, gamma=0, rotation_method='orthogonal', return_gradient=True):
     """
@@ -138,7 +195,21 @@ def oblimin_objective(L=None, A=None, T=None, gamma=0, rotation_method='orthogon
     return_gradient : bool (default True)
         toggles return of gradient
     """
-    pass
+    if L is None:
+        L = rotateA(A, T, rotation_method)
+    
+    p, k = L.shape
+    N = np.ones((k, k)) - np.eye(k)
+    C = np.ones((p, p)) / p
+    
+    L_squared = L**2
+    phi = 0.25 * np.sum(np.dot(L_squared, N) * (L_squared - gamma * np.dot(C, L_squared)))
+    
+    if return_gradient:
+        grad = L * np.dot((np.eye(p) - gamma * C), np.dot(L_squared, N))
+        return phi, grad
+    else:
+        return phi
 
 def orthomax_objective(L=None, A=None, T=None, gamma=0, return_gradient=True):
     """
