@@ -14,6 +14,8 @@ from scipy.special import expm1, gamma
 class Transforms:
 
     def __init__(self):
+        # Initialize any necessary attributes here
+        # For now, we'll keep it as pass since no specific attributes are required
         pass
 
 class TransfFrank(Transforms):
