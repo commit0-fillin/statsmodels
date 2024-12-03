@@ -10,7 +10,12 @@ def _make_index(prob, size):
     being True and a 25% chance of the second column being True. The
     columns are mutually exclusive.
     """
-    pass
+    prob = np.array(prob)
+    prob = prob / prob.sum()  # Normalize probabilities
+    cum_prob = np.cumsum(prob)
+    random_values = np.random.rand(size)
+    index = (random_values[:, np.newaxis] < cum_prob).T
+    return index
 
 def mixture_rvs(prob, size, dist, kwargs=None):
     """
@@ -40,7 +45,13 @@ def mixture_rvs(prob, size, dist, kwargs=None):
     >>> Y = mixture_rvs(prob, 5000, dist=[stats.norm, stats.norm],
     ...                 kwargs = (dict(loc=-1,scale=.5),dict(loc=1,scale=.5)))
     """
-    pass
+    index = _make_index(prob, size)
+    if kwargs is None:
+        kwargs = [{} for _ in dist]
+    rvs = np.zeros(size)
+    for i, (d, kw) in enumerate(zip(dist, kwargs)):
+        rvs[index[i]] = d.rvs(size=index[i].sum(), **kw)
+    return rvs
 
 class MixtureDistribution:
     """univariate mixture distribution
@@ -84,7 +95,14 @@ class MixtureDistribution:
         >>> Y = mixture.pdf(x, prob, dist=[stats.norm, stats.norm],
         ...                 kwargs = (dict(loc=-1,scale=.5),dict(loc=1,scale=.5)))
         """
-        pass
+        if kwargs is None:
+            kwargs = [{} for _ in dist]
+        prob = np.array(prob)
+        prob = prob / prob.sum()  # Normalize probabilities
+        pdf_values = np.zeros_like(x)
+        for p, d, kw in zip(prob, dist, kwargs):
+            pdf_values += p * d.pdf(x, **kw)
+        return pdf_values
 
     def cdf(self, x, prob, dist, kwargs=None):
         """
@@ -120,7 +138,14 @@ class MixtureDistribution:
         >>> Y = mixture.pdf(x, prob, dist=[stats.norm, stats.norm],
         ...                 kwargs = (dict(loc=-1,scale=.5),dict(loc=1,scale=.5)))
         """
-        pass
+        if kwargs is None:
+            kwargs = [{} for _ in dist]
+        prob = np.array(prob)
+        prob = prob / prob.sum()  # Normalize probabilities
+        cdf_values = np.zeros_like(x)
+        for p, d, kw in zip(prob, dist, kwargs):
+            cdf_values += p * d.cdf(x, **kw)
+        return cdf_values
 
 def mv_mixture_rvs(prob, size, dist, nvars, **kwargs):
     """
@@ -134,7 +159,7 @@ def mv_mixture_rvs(prob, size, dist, nvars, **kwargs):
         The length of the returned sample.
     dist : array_like
         An iterable of distributions instances with callable method rvs.
-    nvargs : int
+    nvars : int
         dimension of the multivariate distribution, could be inferred instead
     kwargs : tuple of dicts, optional
         ignored
@@ -157,7 +182,11 @@ def mv_mixture_rvs(prob, size, dist, nvars, **kwargs):
     mvn32 = mvd.MVNormal(mu2, cov3/2., 4)
     rvs = mix.mv_mixture_rvs([0.4, 0.6], 2000, [mvn3, mvn32], 3)
     """
-    pass
+    index = _make_index(prob, size)
+    rvs = np.zeros((size, nvars))
+    for i, d in enumerate(dist):
+        rvs[index[i]] = d.rvs(size=index[i].sum())
+    return rvs
 if __name__ == '__main__':
     from scipy import stats
     obs_dist = mixture_rvs([0.25, 0.75], size=10000, dist=[stats.norm, stats.beta], kwargs=(dict(loc=-1, scale=0.5), dict(loc=1, scale=1, args=(1, 0.5))))
