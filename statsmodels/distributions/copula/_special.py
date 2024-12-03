@@ -31,7 +31,7 @@ class Sterling1:
     def clear_cache(self):
         """clear cache of Sterling numbers
         """
-        pass
+        self._cache.clear()
 sterling1 = Sterling1()
 
 class Sterling2:
@@ -68,14 +68,16 @@ def li3(z):
 
     Li(-3, z)
     """
-    pass
+    z = np.asarray(z)
+    return z * (1 + z) / (1 - z)**4
 
 def li4(z):
     """Polylogarithm for negative integer order -4
 
     Li(-4, z)
     """
-    pass
+    z = np.asarray(z)
+    return z * (1 + z) * (1 + 4*z + z**2) / (1 - z)**6
 
 def lin(n, z):
     """Polylogarithm for negative integer order -n
@@ -84,4 +86,10 @@ def lin(n, z):
 
     https://en.wikipedia.org/wiki/Polylogarithm#Particular_values
     """
-    pass
+    z = np.asarray(z)
+    result = np.zeros_like(z, dtype=float)
+    
+    for k in range(n + 1):
+        result += sterling2(n + 1, k + 1) * factorial(k) * (z / (1 - z))**(k + 1)
+    
+    return (-1)**(n + 1) * result
