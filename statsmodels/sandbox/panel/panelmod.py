@@ -9,6 +9,7 @@ Baltagi, Badi H. `Econometric Analysis of Panel Data.` 4th ed. Wiley, 2008.
 from functools import reduce
 import numpy as np
 from statsmodels.regression.linear_model import GLS
+from scipy import stats
 __all__ = ['PanelModel']
 from pandas import Panel
 
@@ -23,7 +24,15 @@ def group(X):
     >>> g
     array([ 0.,  0.,  1.,  2.,  1.,  2.])
     """
-    pass
+    unique_values = {}
+    result = np.zeros(len(X), dtype=float)
+    counter = 0
+    for i, x in enumerate(X):
+        if x not in unique_values:
+            unique_values[x] = counter
+            counter += 1
+        result[i] = unique_values[x]
+    return result
 
 def repanel_cov(groups, sigmas):
     """calculate error covariance matrix for random effects model
@@ -52,7 +61,23 @@ def repanel_cov(groups, sigmas):
     This does not use sparse matrices and constructs nobs by nobs
     matrices. Also, omegainvsqrt is not sparse, i.e. elements are non-zero
     """
-    pass
+    nobs = len(groups)
+    if groups.ndim == 1:
+        groups = groups.reshape(-1, 1)
+    nre = groups.shape[1]
+
+    # Construct the covariance matrix
+    omega = np.zeros((nobs, nobs))
+    for i in range(nre):
+        omega += (sigmas[i]**2) * (groups[:, i:i+1] == groups[:, i:i+1].T)
+    omega += (sigmas[-1]**2) * np.eye(nobs)
+
+    # Calculate inverse and square root inverse
+    eigvals, eigvecs = np.linalg.eigh(omega)
+    omegainv = np.dot(eigvecs, np.dot(np.diag(1/eigvals), eigvecs.T))
+    omegainvsqrt = np.dot(eigvecs, np.dot(np.diag(1/np.sqrt(eigvals)), eigvecs.T))
+
+    return omega, omegainv, omegainvsqrt
 
 class PanelData(Panel):
     pass
@@ -87,7 +112,24 @@ class PanelModel:
 
         See PanelModel
         """
-        pass
+        self.endog = np.asarray(endog)
+        self.exog = np.asarray(exog)
+        self.panel = np.asarray(panel)
+        self.time = np.asarray(time)
+        self.xtnames = xtnames or ['panel', 'time']
+        self.equation = equation
+
+        if self.exog.ndim == 1:
+            self.exog = self.exog.reshape(-1, 1)
+
+        self.nobs, self.k_vars = self.exog.shape
+        self.n_panels = len(np.unique(self.panel))
+        self.n_periods = len(np.unique(self.time))
+
+        if len(self.endog) != self.nobs:
+            raise ValueError("endog and exog must have the same number of observations")
+        if len(self.panel) != self.nobs or len(self.time) != self.nobs:
+            raise ValueError("panel and time must have the same length as endog")
 
     def _group_mean(self, X, index='oneway', counts=False, dummies=False):
         """
@@ -95,7 +137,38 @@ class PanelModel:
 
         index default is panel
         """
-        pass
+        if index == 'oneway':
+            groups = self.panel
+        elif index == 'time':
+            groups = self.time
+        else:
+            raise ValueError("index must be 'oneway' or 'time'")
+
+        unique_groups = np.unique(groups)
+        n_groups = len(unique_groups)
+
+        if X.ndim == 1:
+            X = X.reshape(-1, 1)
+        n_vars = X.shape[1]
+
+        group_means = np.zeros((n_groups, n_vars))
+        group_counts = np.zeros(n_groups)
+
+        for i, group in enumerate(unique_groups):
+            mask = (groups == group)
+            group_means[i] = X[mask].mean(axis=0)
+            group_counts[i] = mask.sum()
+
+        if dummies:
+            dummy_matrix = (groups[:, None] == unique_groups).astype(float)
+            if counts:
+                return group_means, group_counts, dummy_matrix
+            else:
+                return group_means, dummy_matrix
+        elif counts:
+            return group_means, group_counts
+        else:
+            return group_means
 
     def fit(self, model=None, method=None, effects='oneway'):
         """
@@ -124,7 +197,63 @@ class PanelModel:
         This is unfinished.  None of the method arguments work yet.
         Only oneway effects should work.
         """
-        pass
+        if model == 'pooled':
+            return self._fit_pooled()
+        elif model == 'between':
+            return self._fit_between(effects)
+        elif model == 'fixed':
+            return self._fit_fixed(effects)
+        elif model == 'random':
+            return self._fit_random(effects)
+        else:
+            raise ValueError("Unsupported model type")
+
+    def _fit_pooled(self):
+        return GLS(self.endog, self.exog).fit()
+
+    def _fit_between(self, effects):
+        if effects == 'oneway':
+            group_means_y = self._group_mean(self.endog)
+            group_means_X = self._group_mean(self.exog)
+        elif effects == 'time':
+            group_means_y = self._group_mean(self.endog, index='time')
+            group_means_X = self._group_mean(self.exog, index='time')
+        else:
+            raise ValueError("effects must be 'oneway' or 'time'")
+        
+        return GLS(group_means_y, group_means_X).fit()
+
+    def _fit_fixed(self, effects):
+        if effects == 'oneway':
+            demeaned_y = self.endog - self._group_mean(self.endog)
+            demeaned_X = self.exog - self._group_mean(self.exog)
+        elif effects == 'time':
+            demeaned_y = self.endog - self._group_mean(self.endog, index='time')
+            demeaned_X = self.exog - self._group_mean(self.exog, index='time')
+        elif effects == 'twoway':
+            demeaned_y = self.endog - self._group_mean(self.endog) - self._group_mean(self.endog, index='time') + self.endog.mean()
+            demeaned_X = self.exog - self._group_mean(self.exog) - self._group_mean(self.exog, index='time') + self.exog.mean(axis=0)
+        else:
+            raise ValueError("effects must be 'oneway', 'time', or 'twoway'")
+        
+        return GLS(demeaned_y, demeaned_X).fit()
+
+    def _fit_random(self, effects):
+        # This is a simplified random effects model using GLS
+        # A more sophisticated implementation would use the appropriate variance components
+        if effects == 'oneway':
+            group_means_y = self._group_mean(self.endog)
+            group_means_X = self._group_mean(self.exog)
+            between_resid = group_means_y - np.dot(group_means_X, np.linalg.lstsq(group_means_X, group_means_y, rcond=None)[0])
+            sigma_u = np.var(between_resid)
+            sigma_e = np.var(self.endog - np.dot(self.exog, np.linalg.lstsq(self.exog, self.endog, rcond=None)[0]))
+            theta = 1 - np.sqrt(sigma_e / (self.n_periods * sigma_u + sigma_e))
+            y_star = self.endog - theta * self._group_mean(self.endog)
+            X_star = self.exog - theta * self._group_mean(self.exog)
+        else:
+            raise ValueError("Only oneway random effects are implemented")
+        
+        return GLS(y_star, X_star).fit()
 
 class SURPanel(PanelModel):
     pass
