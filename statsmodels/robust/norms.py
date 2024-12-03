@@ -6,7 +6,7 @@ def _cabs(x):
     This could be useful for complex step derivatives of functions that
     need abs. Not yet used.
     """
-    pass
+    return np.where(np.real(x) < 0, -x, x)
 
 class RobustNorm:
     """
@@ -42,7 +42,7 @@ class RobustNorm:
 
         -2 loglike used in M-estimator
         """
-        pass
+        raise NotImplementedError("rho method must be implemented in subclass")
 
     def psi(self, z):
         """
@@ -52,7 +52,7 @@ class RobustNorm:
 
         psi = rho'
         """
-        pass
+        raise NotImplementedError("psi method must be implemented in subclass")
 
     def weights(self, z):
         """
@@ -62,7 +62,7 @@ class RobustNorm:
 
         psi(z) / z
         """
-        pass
+        return self.psi(z) / z
 
     def psi_deriv(self, z):
         """
@@ -74,7 +74,7 @@ class RobustNorm:
 
         psi_derive = psi'
         """
-        pass
+        raise NotImplementedError("psi_deriv method must be implemented in subclass")
 
     def __call__(self, z):
         """
@@ -105,7 +105,7 @@ class LeastSquares(RobustNorm):
         rho : ndarray
             rho(z) = (1/2.)*z**2
         """
-        pass
+        return 0.5 * z**2
 
     def psi(self, z):
         """
@@ -123,7 +123,7 @@ class LeastSquares(RobustNorm):
         psi : ndarray
             psi(z) = z
         """
-        pass
+        return z
 
     def weights(self, z):
         """
@@ -141,7 +141,7 @@ class LeastSquares(RobustNorm):
         weights : ndarray
             weights(z) = np.ones(z.shape)
         """
-        pass
+        return np.ones_like(z)
 
     def psi_deriv(self, z):
         """
@@ -156,7 +156,7 @@ class LeastSquares(RobustNorm):
         -----
         Used to estimate the robust covariance matrix.
         """
-        pass
+        return np.ones_like(z)
 
 class HuberT(RobustNorm):
     """
@@ -180,7 +180,7 @@ class HuberT(RobustNorm):
         """
         Huber's T is defined piecewise over the range for z
         """
-        pass
+        return np.less_equal(np.abs(z), self.t)
 
     def rho(self, z):
         """
@@ -198,7 +198,11 @@ class HuberT(RobustNorm):
 
             rho(z) = \\|z\\|*t - .5*t**2    for \\|z\\| > t
         """
-        pass
+        z = np.asarray(z)
+        subset = self._subset(z)
+        return np.where(subset,
+                        0.5 * z**2,
+                        self.t * np.abs(z) - 0.5 * self.t**2)
 
     def psi(self, z):
         """
@@ -218,7 +222,9 @@ class HuberT(RobustNorm):
 
             psi(z) = sign(z)*t for \\|z\\| > t
         """
-        pass
+        z = np.asarray(z)
+        subset = self._subset(z)
+        return np.where(subset, z, self.t * np.sign(z))
 
     def weights(self, z):
         """
@@ -238,7 +244,9 @@ class HuberT(RobustNorm):
 
             weights(z) = t/\\|z\\|      for \\|z\\| > t
         """
-        pass
+        z = np.asarray(z)
+        subset = self._subset(z)
+        return np.where(subset, 1, self.t / np.abs(z))
 
     def psi_deriv(self, z):
         """
@@ -248,7 +256,7 @@ class HuberT(RobustNorm):
         -----
         Used to estimate the robust covariance matrix.
         """
-        pass
+        return np.where(self._subset(z), 1, 0)
 
 class RamsayE(RobustNorm):
     """
