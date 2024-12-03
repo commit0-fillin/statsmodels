@@ -53,7 +53,8 @@ class Penalty:
         A scalar penaty value; greater values imply greater
         penalization.
         """
-        pass
+        params = np.asarray(params)
+        return np.sum(self.alpha * self.weights * params**2)
 
     def deriv(self, params):
         """
@@ -69,7 +70,8 @@ class Penalty:
         The gradient of the penalty with respect to each element in
         `params`.
         """
-        pass
+        params = np.asarray(params)
+        return 2 * self.alpha * self.weights * params
 
     def _null_weights(self, params):
         """work around for Null model
@@ -78,7 +80,10 @@ class Penalty:
         as in DiscreteModels.
         TODO: check other models
         """
-        pass
+        if np.size(self.weights) > 1:
+            return self.weights[:np.size(params)]
+        else:
+            return self.weights
 
 class NonePenalty(Penalty):
     """
@@ -172,7 +177,14 @@ class SCAD(Penalty):
         Hessian. If the return is 1 dimensional, then it is the diagonal of
         the Hessian.
         """
-        pass
+        params = np.abs(params)
+        tau, c = self.tau, self.c
+        result = np.zeros_like(params)
+        mask1 = params < tau
+        mask2 = (tau <= params) & (params < c * tau)
+        result[mask1] = 0
+        result[mask2] = -1 / (c - 1)
+        return result
 
 class SCADSmoothed(SCAD):
     """
@@ -264,7 +276,9 @@ class ConstraintsPenalty:
         deriv2 : ndarray
             value(s) of penalty function
         """
-        pass
+        if self.restriction is not None:
+            params = np.dot(self.restriction, params)
+        return np.sum(self.weights * self.penalty.func(params))
 
     def deriv(self, params):
         """first derivative of penalty function w.r.t. params
@@ -279,7 +293,12 @@ class ConstraintsPenalty:
         deriv2 : ndarray
             array of first partial derivatives
         """
-        pass
+        if self.restriction is not None:
+            transformed_params = np.dot(self.restriction, params)
+            grad = self.penalty.deriv(transformed_params)
+            return np.dot(self.restriction.T, self.weights * grad)
+        else:
+            return self.weights * self.penalty.deriv(params)
     grad = deriv
 
     def deriv2(self, params):
@@ -295,7 +314,12 @@ class ConstraintsPenalty:
         deriv2 : ndarray, 2-D
             second derivative matrix
         """
-        pass
+        if self.restriction is not None:
+            transformed_params = np.dot(self.restriction, params)
+            hess = np.diag(self.weights * self.penalty.deriv2(transformed_params))
+            return np.dot(self.restriction.T, np.dot(hess, self.restriction))
+        else:
+            return np.diag(self.weights * self.penalty.deriv2(params))
 
 class L2ConstraintsPenalty(ConstraintsPenalty):
     """convenience class of ConstraintsPenalty with L2 penalization
@@ -325,7 +349,7 @@ class CovariancePenalty:
         -------
         A scalar penalty value
         """
-        pass
+        return self.weight * (np.trace(mat) + np.trace(mat_inv) - 2 * mat.shape[0])
 
     def deriv(self, mat, mat_inv):
         """
@@ -342,7 +366,9 @@ class CovariancePenalty:
         with respect to each element in the lower triangle
         of `mat`.
         """
-        pass
+        n = mat.shape[0]
+        grad = self.weight * (np.eye(n) - np.dot(mat_inv, mat_inv))
+        return grad[np.tril_indices(n)]
 
 class PSD(CovariancePenalty):
     """
