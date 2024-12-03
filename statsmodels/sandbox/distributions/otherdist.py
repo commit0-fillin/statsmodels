@@ -120,7 +120,7 @@ class ClippedContinuous:
         """helper method to get clip_lower from kwds or attribute
 
         """
-        pass
+        return kwds.get('clip_lower', self.clip_lower)
 if __name__ == '__main__':
     doplots = 1
     mdist = stats.poisson(2.0)
