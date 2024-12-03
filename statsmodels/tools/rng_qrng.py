@@ -29,4 +29,17 @@ def check_random_state(seed=None):
 
         Random number generator.
     """
-    pass
+    if seed is None:
+        return np.random.default_rng()
+    elif isinstance(seed, (int, np.integer)):
+        return np.random.default_rng(seed)
+    elif isinstance(seed, (list, tuple, np.ndarray)):
+        return np.random.default_rng(seed)
+    elif isinstance(seed, (np.random.Generator, np.random.RandomState)):
+        return seed
+    elif hasattr(seed, 'random'):
+        # Check if it's a QMCEngine instance
+        if hasattr(seed, 'random_base2'):
+            return seed
+    else:
+        raise ValueError(f"Invalid seed: {seed}")
