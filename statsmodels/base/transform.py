@@ -48,7 +48,16 @@ class BoxCox:
         Box, G. E. P., and D. R. Cox. 1964. "An Analysis of Transformations".
         `Journal of the Royal Statistical Society`. 26 (2): 211-252.
         """
-        pass
+        x = np.asarray(x)
+        if lmbda is None:
+            lmbda = self._est_lambda(x, method=method, **kwargs)
+        
+        if lmbda == 0:
+            y = np.log(x)
+        else:
+            y = (x**lmbda - 1) / lmbda
+        
+        return y, lmbda
 
     def untransform_boxcox(self, x, lmbda, method='naive'):
         """
@@ -74,7 +83,16 @@ class BoxCox:
         y : array_like
             The untransformed series.
         """
-        pass
+        x = np.asarray(x)
+        if method != 'naive':
+            raise ValueError("Only 'naive' method is currently implemented.")
+        
+        if lmbda == 0:
+            y = np.exp(x)
+        else:
+            y = (x * lmbda + 1) ** (1 / lmbda)
+        
+        return y
 
     def _est_lambda(self, x, bounds=(-1, 2), method='guerrero', **kwargs):
         """
@@ -103,7 +121,12 @@ class BoxCox:
         lmbda : float
             The lambda parameter.
         """
-        pass
+        if method == 'guerrero':
+            return self._guerrero_cv(x, bounds, **kwargs)
+        elif method == 'loglik':
+            return self._loglik_boxcox(x, bounds, **kwargs)
+        else:
+            raise ValueError("Method must be either 'guerrero' or 'loglik'")
 
     def _guerrero_cv(self, x, bounds, window_length=4, scale='sd', options={'maxiter': 25}):
         """
@@ -130,7 +153,23 @@ class BoxCox:
         options : dict
             The options (as a dict) to be passed to the optimizer.
         """
-        pass
+        x = np.asarray(x)
+        n = len(x)
+        k = n // window_length
+
+        def cv(lmbda):
+            y, _ = self.transform_boxcox(x, lmbda)
+            y_grouped = y[:k*window_length].reshape(k, window_length)
+            if scale == 'sd':
+                dispersion = np.std(y_grouped, axis=1, ddof=1)
+            elif scale == 'mad':
+                dispersion = mad(y_grouped, axis=1)
+            else:
+                raise ValueError("Scale must be either 'sd' or 'mad'")
+            return np.std(dispersion) / np.mean(dispersion)
+
+        result = minimize_scalar(cv, bounds=bounds, method='bounded', options=options)
+        return result.x
 
     def _loglik_boxcox(self, x, bounds, options={'maxiter': 25}):
         """
@@ -144,4 +183,14 @@ class BoxCox:
         options : dict
             The options (as a dict) to be passed to the optimizer.
         """
-        pass
+        x = np.asarray(x)
+        n = len(x)
+
+        def loglik(lmbda):
+            y, _ = self.transform_boxcox(x, lmbda)
+            s2 = np.var(y, ddof=1)
+            loglik = -n/2 * np.log(s2) + (lmbda - 1) * np.sum(np.log(x))
+            return -loglik  # Minimize negative log-likelihood
+
+        result = minimize_scalar(loglik, bounds=bounds, method='bounded', options=options)
+        return result.x
