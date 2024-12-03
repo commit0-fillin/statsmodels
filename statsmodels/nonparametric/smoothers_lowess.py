@@ -131,4 +131,51 @@ def lowess(endog, exog, frac=2.0 / 3.0, it=3, delta=0.0, xvals=None, is_sorted=F
     >>> w = lowess(y, x, frac=1./3)
 
     """
-    pass
+    endog = np.asarray(endog)
+    exog = np.asarray(exog)
+
+    if exog.ndim != 1:
+        raise ValueError("exog must be 1-dimensional")
+
+    if endog.ndim != 1:
+        raise ValueError("endog must be 1-dimensional")
+
+    if endog.shape[0] != exog.shape[0]:
+        raise ValueError("endog and exog must have same length")
+
+    # Handle missing values
+    if missing != 'none':
+        mask = np.isfinite(exog) & np.isfinite(endog)
+        if not np.all(mask):
+            if missing == 'raise':
+                raise ValueError("Missing values in input data")
+            exog = exog[mask]
+            endog = endog[mask]
+
+    # Sort data if needed
+    if not is_sorted:
+        sort_index = np.argsort(exog)
+        exog = exog[sort_index]
+        endog = endog[sort_index]
+
+    if xvals is not None:
+        if delta != 0:
+            raise ValueError("delta must be 0 if xvals is provided")
+        xvals = np.asarray(xvals)
+        if xvals.ndim != 1:
+            raise ValueError("xvals must be 1-dimensional")
+
+    # Call the Cython implementation
+    out = _lowess(endog, exog, frac, it, delta, xvals)
+
+    if xvals is not None:
+        return out
+
+    if return_sorted:
+        return np.column_stack((exog, out))
+    else:
+        if not is_sorted:
+            # Unsort the output array
+            unsort_index = np.argsort(sort_index)
+            out = out[unsort_index]
+        return out
