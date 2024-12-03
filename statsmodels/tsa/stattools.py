@@ -70,7 +70,27 @@ def _autolag(mod, endog, exog, startlag, maxlag, method, modargs=(), fitargs=(),
     assumed to be in contiguous columns from low to high lag length with
     the highest lag in the last column.
     """
-    pass
+    results = {}
+    method = method.lower()
+    for lag in range(startlag, startlag + maxlag + 1):
+        mod_instance = mod(endog, exog[:, :lag], *modargs)
+        results[lag] = mod_instance.fit(*fitargs)
+
+    if method == "aic":
+        criteria = [r.aic for r in results.values()]
+    elif method == "bic":
+        criteria = [r.bic for r in results.values()]
+    elif method == "t-stat":
+        criteria = [abs(r.tvalues[-1]) for r in results.values()]
+    else:
+        raise ValueError("method must be 'aic', 'bic', or 't-stat'")
+
+    icbest, bestlag = max(zip(criteria, results.keys()))
+
+    if regresults:
+        return icbest, bestlag, results
+    else:
+        return icbest, bestlag
 
 def adfuller(x, maxlag: int | None=None, regression='c', autolag='AIC', store=False, regresults=False):
     """
@@ -160,7 +180,63 @@ def adfuller(x, maxlag: int | None=None, regression='c', autolag='AIC', store=Fa
         University, Dept of Economics, Working Papers.  Available at
         http://ideas.repec.org/p/qed/wpaper/1227.html
     """
-    pass
+    from statsmodels.tsa.adfvalues import mackinnoncrit, mackinnonp
+    from statsmodels.regression.linear_model import OLS
+
+    x = np.asarray(x)
+    nobs = x.shape[0]
+
+    if maxlag is None:
+        maxlag = int(np.ceil(12 * np.power(nobs / 100, 1 / 4)))
+
+    xdiff = np.diff(x)
+    xdall = lagmat(xdiff[:, None], maxlag, trim='both', original='in')
+    nobs = xdall.shape[0]
+
+    xdall[:, 0] = x[-nobs - 1:-1]  # replace 0 xdiff with level of x
+    xdshort = xdall[:, 0]
+
+    if regression != 'n':
+        fullregs = add_trend(xdall[:, 1:], regression, prepend=True)
+    else:
+        fullregs = xdall[:, 1:]
+
+    startlag = fullregs.shape[1] - xdall.shape[1] + 1
+
+    # Select lag length
+    if isinstance(autolag, str):
+        icbest, bestlag = _autolag(OLS, xdshort, fullregs, startlag,
+                                   maxlag, autolag)
+    elif autolag is None:
+        bestlag = maxlag
+        icbest = None
+    else:
+        raise ValueError('autolag must be either a string or None')
+
+    # Compute ADF test statistic
+    bestmod = OLS(xdshort, add_trend(xdall[:, :bestlag + 1], regression)).fit()
+    adf = bestmod.tvalues[0]
+
+    # Get approx p-value and critical values
+    pvalue = mackinnonp(adf, regression=regression, N=1)
+    critvalues = mackinnoncrit(N=1, regression=regression, nobs=nobs)
+    critvalues = {"1%" : critvalues[0], "5%" : critvalues[1], "10%" : critvalues[2]}
+
+    if store:
+        from statsmodels.tools.sm_exceptions import ResultsStore
+        resstore = ResultsStore()
+        resstore.adf = adf
+        resstore.pvalue = pvalue
+        resstore.usedlag = bestlag
+        resstore.nobs = nobs
+        resstore.critical_values = critvalues
+        resstore.icbest = icbest
+        return adf, pvalue, bestlag, nobs, critvalues, icbest, resstore
+    else:
+        if not regresults:
+            return adf, pvalue, bestlag, nobs, critvalues, icbest
+        else:
+            return adf, pvalue, bestlag, nobs, critvalues, icbest, bestmod
 
 @deprecate_kwarg('unbiased', 'adjusted')
 def acovf(x, adjusted=False, demean=True, fft=True, missing='none', nlag=None):
@@ -206,7 +282,41 @@ def acovf(x, adjusted=False, demean=True, fft=True, missing='none', nlag=None):
            and amplitude modulation. Sankhya: The Indian Journal of
            Statistics, Series A, pp.383-392.
     """
-    pass
+    x = np.array(x)
+    if x.ndim > 1:
+        raise ValueError("x must be 1d")
+
+    if missing != 'none':
+        mask = np.isnan(x)
+        if missing == 'raise' and np.any(mask):
+            raise MissingDataError("NaNs found in input array")
+        elif missing == 'drop':
+            x = x[~mask]
+        elif missing == 'conservative':
+            x = ma.array(x, mask=mask)
+        else:
+            raise ValueError("missing option %s not understood" % missing)
+
+    if demean:
+        x = x - x.mean()
+
+    n = len(x)
+    if nlag is None:
+        nlag = n - 1
+
+    if adjusted:
+        d = np.arange(1, nlag + 1)
+        acov = np.correlate(x, x, 'full')[n - 1:] / (n - d)
+    elif fft:
+        nobs = len(x)
+        n = _next_regular(2 * nobs + 1)
+        Frf = np.fft.fft(x, n=n)
+        acov = np.fft.ifft(Frf * np.conjugate(Frf))[:nobs] / nobs
+        acov = acov.real
+    else:
+        acov = np.correlate(x, x, 'full')[n - 1:] / n
+
+    return acov[:nlag + 1]
 
 def q_stat(x, nobs):
     """
