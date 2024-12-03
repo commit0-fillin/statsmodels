@@ -150,4 +150,19 @@ class DiscretizedModel(GenericLikelihoodModel):
     def get_distr(self, params):
         """frozen distribution instance of the discrete distribution.
         """
-        pass
+        if self.distr is None:
+            raise ValueError("Distribution not specified")
+        
+        # Unpack parameters
+        if self.distr.add_scale:
+            shape_params = params[:-1]
+            scale = params[-1]
+        else:
+            shape_params = params
+            scale = 1.0
+        
+        # Create a frozen instance of the distribution
+        frozen_distr = self.distr.distr(*shape_params, scale=scale)
+        
+        # Return the discretized distribution
+        return self.distr(frozen_distr, d_offset=self.distr.d_offset)
