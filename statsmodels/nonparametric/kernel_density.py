@@ -144,7 +144,24 @@ class KDEMultivariate(GenericKDE):
         .. math:: K_{h}(X_{i},X_{j}) =
             \\prod_{s=1}^{q}h_{s}^{-1}k\\left(\\frac{X_{is}-X_{js}}{h_{s}}\\right)
         """
-        pass
+        n = self.nobs
+        k_vars = self.k_vars
+        loo_likelihood = 0.0
+
+        for i in range(n):
+            Xi = self.data[i]
+            X_without_i = np.delete(self.data, i, axis=0)
+            
+            kernel_product = np.ones(n - 1)
+            for s in range(k_vars):
+                kernel_product *= kernels.kernel_func(self.data_type[s])(
+                    (Xi[s] - X_without_i[:, s]) / bw[s]
+                ) / bw[s]
+            
+            f_i = np.sum(kernel_product) / (n - 1)
+            loo_likelihood += func(f_i)
+
+        return loo_likelihood
 
     def pdf(self, data_predict=None):
         """
@@ -168,7 +185,24 @@ class KDEMultivariate(GenericKDE):
         .. math:: K_{h}(X_{i},X_{j}) =
             \\prod_{s=1}^{q}h_{s}^{-1}k\\left(\\frac{X_{is}-X_{js}}{h_{s}}\\right)
         """
-        pass
+        if data_predict is None:
+            data_predict = self.data
+
+        data_predict = _adjust_shape(data_predict, self.k_vars)
+        n_predict = data_predict.shape[0]
+
+        pdf_est = np.zeros(n_predict)
+
+        for i in range(n_predict):
+            Xi = data_predict[i]
+            kernel_product = np.ones(self.nobs)
+            for s in range(self.k_vars):
+                kernel_product *= kernels.kernel_func(self.data_type[s])(
+                    (Xi[s] - self.data[:, s]) / self.bw[s]
+                ) / self.bw[s]
+            pdf_est[i] = np.mean(kernel_product)
+
+        return pdf_est
 
     def cdf(self, data_predict=None):
         """
@@ -201,7 +235,27 @@ class KDEMultivariate(GenericKDE):
 
         Used bandwidth is ``self.bw``.
         """
-        pass
+        if data_predict is None:
+            data_predict = self.data
+
+        data_predict = _adjust_shape(data_predict, self.k_vars)
+        n_predict = data_predict.shape[0]
+
+        cdf_est = np.zeros(n_predict)
+
+        for i in range(n_predict):
+            Xi = data_predict[i]
+            cdf_product = np.ones(self.nobs)
+            for s in range(self.k_vars):
+                if self.data_type[s] in ['c', 'o']:
+                    cdf_product *= kernels.kernel_cdf(self.data_type[s])(
+                        (Xi[s] - self.data[:, s]) / self.bw[s]
+                    )
+                else:  # unordered discrete
+                    cdf_product *= (self.data[:, s] <= Xi[s]).astype(float)
+            cdf_est[i] = np.mean(cdf_product)
+
+        return cdf_est
 
     def imse(self, bw):
         """
@@ -238,11 +292,45 @@ class KDEMultivariate(GenericKDE):
         .. [2] Racine, J., Li, Q. "Nonparametric Estimation of Distributions
                 with Categorical and Continuous Data." Working Paper. (2000)
         """
-        pass
+        n = self.nobs
+        k_vars = self.k_vars
+
+        # First term
+        term1 = 0.0
+        for i in range(n):
+            for j in range(n):
+                kernel_product = 1.0
+                for s in range(k_vars):
+                    kernel_product *= kernels.kernel_convolution(self.data_type[s])(
+                        (self.data[i, s] - self.data[j, s]) / bw[s]
+                    ) / bw[s]
+                term1 += kernel_product
+        term1 /= n**2
+
+        # Second term
+        term2 = 0.0
+        for i in range(n):
+            for j in range(n):
+                if i != j:
+                    kernel_product = 1.0
+                    for s in range(k_vars):
+                        kernel_product *= kernels.kernel_func(self.data_type[s])(
+                            (self.data[i, s] - self.data[j, s]) / bw[s]
+                        ) / bw[s]
+                    term2 += kernel_product
+        term2 *= 2 / (n * (n - 1))
+
+        CV = term1 - term2
+        return CV
 
     def _get_class_vars_type(self):
         """Helper method to be able to pass needed vars to _compute_subset."""
-        pass
+        return {
+            'data': self.data,
+            'data_type': self.data_type,
+            'k_vars': self.k_vars,
+            'nobs': self.nobs
+        }
 
 class KDEMultivariateConditional(GenericKDE):
     """
@@ -364,7 +452,40 @@ class KDEMultivariateConditional(GenericKDE):
         Similar to ``KDE.loo_likelihood`, but substitute ``f(y|x)=f(x,y)/f(x)``
         for ``f(x)``.
         """
-        pass
+        n = self.nobs
+        loo_likelihood = 0.0
+
+        for i in range(n):
+            Xi = self.exog[i]
+            Yi = self.endog[i]
+            X_without_i = np.delete(self.exog, i, axis=0)
+            Y_without_i = np.delete(self.endog, i, axis=0)
+            
+            # Calculate f(x,y)
+            kernel_product_xy = np.ones(n - 1)
+            for s in range(self.k_indep):
+                kernel_product_xy *= kernels.kernel_func(self.indep_type[s])(
+                    (Xi[s] - X_without_i[:, s]) / bw[s]
+                ) / bw[s]
+            for s in range(self.k_dep):
+                kernel_product_xy *= kernels.kernel_func(self.dep_type[s])(
+                    (Yi[s] - Y_without_i[:, s]) / bw[self.k_indep + s]
+                ) / bw[self.k_indep + s]
+            f_xy = np.sum(kernel_product_xy) / (n - 1)
+            
+            # Calculate f(x)
+            kernel_product_x = np.ones(n - 1)
+            for s in range(self.k_indep):
+                kernel_product_x *= kernels.kernel_func(self.indep_type[s])(
+                    (Xi[s] - X_without_i[:, s]) / bw[s]
+                ) / bw[s]
+            f_x = np.sum(kernel_product_x) / (n - 1)
+            
+            # Calculate f(y|x) = f(x,y) / f(x)
+            f_y_given_x = f_xy / f_x if f_x != 0 else 0
+            loo_likelihood += func(f_y_given_x)
+
+        return loo_likelihood
 
     def pdf(self, endog_predict=None, exog_predict=None):
         """
@@ -396,7 +517,45 @@ class KDEMultivariateConditional(GenericKDE):
 
         where :math:`k` is the appropriate kernel for each variable.
         """
-        pass
+        if endog_predict is None:
+            endog_predict = self.endog
+        if exog_predict is None:
+            exog_predict = self.exog
+
+        endog_predict = _adjust_shape(endog_predict, self.k_dep)
+        exog_predict = _adjust_shape(exog_predict, self.k_indep)
+        n_predict = endog_predict.shape[0]
+
+        pdf = np.zeros(n_predict)
+
+        for i in range(n_predict):
+            Xi = exog_predict[i]
+            Yi = endog_predict[i]
+            
+            # Calculate f(x,y)
+            kernel_product_xy = np.ones(self.nobs)
+            for s in range(self.k_indep):
+                kernel_product_xy *= kernels.kernel_func(self.indep_type[s])(
+                    (Xi[s] - self.exog[:, s]) / self.bw[s]
+                ) / self.bw[s]
+            for s in range(self.k_dep):
+                kernel_product_xy *= kernels.kernel_func(self.dep_type[s])(
+                    (Yi[s] - self.endog[:, s]) / self.bw[self.k_indep + s]
+                ) / self.bw[self.k_indep + s]
+            f_xy = np.mean(kernel_product_xy)
+            
+            # Calculate f(x)
+            kernel_product_x = np.ones(self.nobs)
+            for s in range(self.k_indep):
+                kernel_product_x *= kernels.kernel_func(self.indep_type[s])(
+                    (Xi[s] - self.exog[:, s]) / self.bw[s]
+                ) / self.bw[s]
+            f_x = np.mean(kernel_product_x)
+            
+            # Calculate f(y|x) = f(x,y) / f(x)
+            pdf[i] = f_xy / f_x if f_x != 0 else 0
+
+        return pdf
 
     def cdf(self, endog_predict=None, exog_predict=None):
         """
@@ -439,7 +598,47 @@ class KDEMultivariateConditional(GenericKDE):
                     distribution function." Journal of Nonparametric
                     Statistics (2008)
         """
-        pass
+        if endog_predict is None:
+            endog_predict = self.endog
+        if exog_predict is None:
+            exog_predict = self.exog
+
+        endog_predict = _adjust_shape(endog_predict, self.k_dep)
+        exog_predict = _adjust_shape(exog_predict, self.k_indep)
+        n_predict = endog_predict.shape[0]
+
+        cdf_est = np.zeros(n_predict)
+
+        for i in range(n_predict):
+            Xi = exog_predict[i]
+            Yi = endog_predict[i]
+            
+            # Calculate G((y-Y_i)/h_0)
+            G_product = np.ones(self.nobs)
+            for s in range(self.k_dep):
+                if self.dep_type[s] in ['c', 'o']:
+                    G_product *= kernels.kernel_cdf(self.dep_type[s])(
+                        (Yi[s] - self.endog[:, s]) / self.bw[self.k_indep + s]
+                    )
+                else:  # unordered discrete
+                    G_product *= (self.endog[:, s] <= Yi[s]).astype(float)
+            
+            # Calculate W_h(X_i, x)
+            W_product = np.ones(self.nobs)
+            for s in range(self.k_indep):
+                if self.indep_type[s] in ['c', 'o']:
+                    W_product *= kernels.kernel_cdf(self.indep_type[s])(
+                        (Xi[s] - self.exog[:, s]) / self.bw[s]
+                    )
+                else:  # unordered discrete
+                    W_product *= (self.exog[:, s] == Xi[s]).astype(float)
+            
+            numerator = np.mean(G_product * W_product)
+            denominator = np.mean(W_product)
+            
+            cdf_est[i] = numerator / denominator if denominator != 0 else 0
+
+        return cdf_est
 
     def imse(self, bw):
         """
@@ -488,8 +687,76 @@ class KDEMultivariateConditional(GenericKDE):
         .. [2] Racine, J., Li, Q. "Nonparametric Estimation of Distributions
                 with Categorical and Continuous Data." Working Paper. (2000)
         """
-        pass
+        n = self.nobs
+        CV = 0.0
+
+        for l in range(n):
+            Xl = self.exog[l]
+            Yl = self.endog[l]
+            X_without_l = np.delete(self.exog, l, axis=0)
+            Y_without_l = np.delete(self.endog, l, axis=0)
+
+            # Calculate G_{-l}(X_{l})
+            G_l = 0.0
+            for i in range(n - 1):
+                for j in range(n - 1):
+                    if i != j:
+                        K_Xi_Xl = 1.0
+                        K_Xj_Xl = 1.0
+                        K_Yi_Yj = 1.0
+                        for s in range(self.k_indep):
+                            K_Xi_Xl *= kernels.kernel_func(self.indep_type[s])(
+                                (X_without_l[i, s] - Xl[s]) / bw[s]
+                            ) / bw[s]
+                            K_Xj_Xl *= kernels.kernel_func(self.indep_type[s])(
+                                (X_without_l[j, s] - Xl[s]) / bw[s]
+                            ) / bw[s]
+                        for s in range(self.k_dep):
+                            K_Yi_Yj *= kernels.kernel_convolution(self.dep_type[s])(
+                                (Y_without_l[i, s] - Y_without_l[j, s]) / bw[self.k_indep + s]
+                            ) / bw[self.k_indep + s]
+                        G_l += K_Xi_Xl * K_Xj_Xl * K_Yi_Yj
+            G_l /= (n - 1)**2
+
+            # Calculate mu_{-l}(X_{l})
+            mu_l = 0.0
+            for i in range(n - 1):
+                K_Xi_Xl = 1.0
+                for s in range(self.k_indep):
+                    K_Xi_Xl *= kernels.kernel_func(self.indep_type[s])(
+                        (X_without_l[i, s] - Xl[s]) / bw[s]
+                    ) / bw[s]
+                mu_l += K_Xi_Xl
+            mu_l /= (n - 1)
+
+            # Calculate f_{-l}(X_{l}, Y_{l})
+            f_l = 0.0
+            for i in range(n - 1):
+                K_XYi_XYl = 1.0
+                for s in range(self.k_indep):
+                    K_XYi_XYl *= kernels.kernel_func(self.indep_type[s])(
+                        (X_without_l[i, s] - Xl[s]) / bw[s]
+                    ) / bw[s]
+                for s in range(self.k_dep):
+                    K_XYi_XYl *= kernels.kernel_func(self.dep_type[s])(
+                        (Y_without_l[i, s] - Yl[s]) / bw[self.k_indep + s]
+                    ) / bw[self.k_indep + s]
+                f_l += K_XYi_XYl
+            f_l /= (n - 1)
+
+            CV += G_l / (mu_l**2) - 2 * f_l / mu_l
+
+        CV /= n
+        return CV
 
     def _get_class_vars_type(self):
         """Helper method to be able to pass needed vars to _compute_subset."""
-        pass
+        return {
+            'endog': self.endog,
+            'exog': self.exog,
+            'dep_type': self.dep_type,
+            'indep_type': self.indep_type,
+            'k_dep': self.k_dep,
+            'k_indep': self.k_indep,
+            'nobs': self.nobs
+        }
