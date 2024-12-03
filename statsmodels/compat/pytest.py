@@ -22,6 +22,7 @@ class NoWarningsChecker:
 
 def pytest_warns(warning: Type[Warning] | Tuple[Type[Warning], ...] | None) -> Union[WarningsChecker, NoWarningsChecker]:
     """
+    A context manager for asserting warnings in a block of code.
 
     Parameters
     ----------
@@ -30,7 +31,11 @@ def pytest_warns(warning: Type[Warning] | Tuple[Type[Warning], ...] | None) -> U
 
     Returns
     -------
-    cm
+    cm : Union[WarningsChecker, NoWarningsChecker]
+        A context manager that can be used to check for warnings.
 
     """
-    pass
+    if warning is None:
+        return NoWarningsChecker()
+    else:
+        return warns(warning)
