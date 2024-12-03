@@ -27,7 +27,20 @@ def _calc_nodewise_row(exog, idx, alpha):
     nodewise_row_i = arg min 1/(2n) ||exog_i - exog_-i gamma||_2^2
                              + alpha ||gamma||_1
     """
-    pass
+    n, p = exog.shape
+    exog_i = exog[:, idx]
+    exog_minus_i = np.delete(exog, idx, axis=1)
+    
+    # Use Lasso regression to solve the optimization problem
+    from sklearn.linear_model import Lasso
+    
+    # Adjust alpha for the Lasso model
+    alpha_adjusted = alpha * n
+    
+    lasso = Lasso(alpha=alpha_adjusted, fit_intercept=False)
+    lasso.fit(exog_minus_i, exog_i)
+    
+    return lasso.coef_
 
 def _calc_nodewise_weight(exog, nodewise_row, idx, alpha):
     """calculates the nodewise_weightvalue for the idxth variable, used to
@@ -57,7 +70,15 @@ def _calc_nodewise_weight(exog, nodewise_row, idx, alpha):
     nodewise_weight_i = sqrt(1/n ||exog,i - exog_-i nodewise_row||_2^2
                              + alpha ||nodewise_row||_1)
     """
-    pass
+    n, p = exog.shape
+    exog_i = exog[:, idx]
+    exog_minus_i = np.delete(exog, idx, axis=1)
+    
+    residual = exog_i - exog_minus_i.dot(nodewise_row)
+    l2_term = np.sum(residual**2) / n
+    l1_term = alpha * np.sum(np.abs(nodewise_row))
+    
+    return np.sqrt(l2_term + l1_term)
 
 def _calc_approx_inv_cov(nodewise_row_l, nodewise_weight_l):
     """calculates the approximate inverse covariance matrix
@@ -84,7 +105,20 @@ def _calc_approx_inv_cov(nodewise_row_l, nodewise_weight_l):
 
     approx_inv_cov_j = - 1 / nww_j [nwr_j,1,...,1,...nwr_j,p]
     """
-    pass
+    p = len(nodewise_row_l)
+    approx_inv_cov = np.zeros((p, p))
+    
+    for j in range(p):
+        nwr_j = nodewise_row_l[j]
+        nww_j = nodewise_weight_l[j]
+        
+        row = np.insert(nwr_j, j, 1)
+        approx_inv_cov[j, :] = -row / nww_j
+    
+    # Make the matrix symmetric
+    approx_inv_cov = (approx_inv_cov + approx_inv_cov.T) / 2
+    
+    return approx_inv_cov
 
 class RegularizedInvCovariance:
     """
@@ -116,4 +150,18 @@ class RegularizedInvCovariance:
         alpha : scalar
             Regularizing constant
         """
-        pass
+        self.alpha = alpha
+        n, p = self.exog.shape
+        
+        nodewise_row_l = []
+        nodewise_weight_l = []
+        
+        for idx in range(p):
+            nodewise_row = _calc_nodewise_row(self.exog, idx, self.alpha)
+            nodewise_row_l.append(nodewise_row)
+            
+            nodewise_weight = _calc_nodewise_weight(self.exog, nodewise_row, idx, self.alpha)
+            nodewise_weight_l.append(nodewise_weight)
+        
+        self.approx_inv_cov = _calc_approx_inv_cov(nodewise_row_l, nodewise_weight_l)
+        return self
