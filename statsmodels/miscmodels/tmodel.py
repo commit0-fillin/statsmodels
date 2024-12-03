@@ -79,7 +79,21 @@ class TLinearModel(GenericLikelihoodModel):
         self.fixed_params and self.expandparams can be used to fix some
         parameters. (I doubt this has been tested in this model.)
         """
-        pass
+        y = self.endog
+        X = self.exog
+        df, scale = params[-2:]
+        beta = params[:-2]
+        
+        nobs = len(y)
+        k = len(beta)
+        
+        resid = y - np.dot(X, beta)
+        
+        nloglike = (nobs * (np_log(scale) + 0.5 * np_log(np_pi) + sps_gamln(0.5 * df) -
+                            sps_gamln(0.5 * (df + 1))))
+        nloglike += ((df + 1) / 2) * np.sum(np_log(1 + (resid / scale)**2 / df))
+        
+        return nloglike / nobs
 
 class TArma(Arma):
     """Univariate Arma Model with t-distributed errors
@@ -107,4 +121,15 @@ class TArma(Arma):
         The ancillary parameter is assumed to be the last element of
         the params vector
         """
-        pass
+        df = params[-1]
+        scale = params[-2]
+        arma_params = params[:-2]
+        
+        # Get ARMA residuals
+        arma_resid = super().geterrors(arma_params)
+        
+        nloglike = (np_log(scale) + 0.5 * np_log(np_pi) + sps_gamln(0.5 * df) -
+                    sps_gamln(0.5 * (df + 1)))
+        nloglike += ((df + 1) / 2) * np_log(1 + (arma_resid / scale)**2 / df)
+        
+        return nloglike
