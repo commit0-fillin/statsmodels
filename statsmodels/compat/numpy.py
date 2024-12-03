@@ -51,4 +51,7 @@ def lstsq(a, b, rcond=None):
     Shim that allows modern rcond setting with backward compat for NumPY
     earlier than 1.14
     """
-    pass
+    if NP_LT_114 and rcond is None:
+        return np.linalg.lstsq(a, b, rcond=-1)
+    else:
+        return np.linalg.lstsq(a, b, rcond=rcond)
