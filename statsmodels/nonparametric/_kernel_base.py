@@ -16,7 +16,10 @@ kernel_func = dict(wangryzin=kernels.wang_ryzin, aitchisonaitken=kernels.aitchis
 
 def _compute_min_std_IQR(data):
     """Compute minimum of std and IQR for each variable."""
-    pass
+    std = np.std(data, axis=0)
+    q75, q25 = np.percentile(data, [75, 25], axis=0)
+    iqr = (q75 - q25) / 1.349
+    return np.minimum(std, iqr)
 
 def _compute_subset(class_type, data, bw, co, do, n_cvars, ix_ord, ix_unord, n_sub, class_vars, randomize, bound):
     """"Compute bw on subset of data.
@@ -27,7 +30,26 @@ def _compute_subset(class_type, data, bw, co, do, n_cvars, ix_ord, ix_unord, n_s
     -----
     Needs to be outside the class in order for joblib to be able to pickle it.
     """
-    pass
+    if randomize:
+        idx = np.random.choice(data.shape[0], n_sub, replace=True)
+        data_sub = data[idx]
+    else:
+        data_sub = data[:n_sub]
+
+    kde = class_type(data_sub, var_type=class_vars)
+    bw_sub = kde._compute_bw(bw)
+
+    if bound:
+        bw_sub = np.maximum(bw_sub, 1e-10)
+        bw_sub[ix_ord] = np.minimum(bw_sub[ix_ord], 1.0)
+        bw_sub[ix_unord] = np.minimum(bw_sub[ix_unord], 1.0)
+
+    scale_factor = bw_sub / bw
+
+    if n_cvars > 0:
+        scale_factor[:n_cvars] = scale_factor[:n_cvars] * (co / do) ** 0.2
+
+    return scale_factor
 
 class GenericKDE(object):
     """
@@ -52,7 +74,17 @@ class GenericKDE(object):
         -----
         The default values for bw is 'normal_reference'.
         """
-        pass
+        if isinstance(bw, str):
+            if bw == 'cv_ml':
+                return self._cv_ml()
+            elif bw == 'normal_reference':
+                return self._normal_reference()
+            elif bw == 'cv_ls':
+                return self._cv_ls()
+            else:
+                raise ValueError("bw must be either 'cv_ml', 'normal_reference', or 'cv_ls'")
+        else:
+            return np.asarray(bw)
 
     def _compute_dispersion(self, data):
         """
@@ -71,13 +103,13 @@ class GenericKDE(object):
         In the notes on bwscaling option in npreg, npudens, npcdens there is
         a discussion on the measure of dispersion
         """
-        pass
+        return _compute_min_std_IQR(data)
 
     def _get_class_vars_type(self):
         """Helper method to be able to pass needed vars to _compute_subset.
 
         Needs to be implemented by subclasses."""
-        pass
+        raise NotImplementedError("This method should be implemented by subclasses.")
 
     def _compute_efficient(self, bw):
         """
@@ -90,11 +122,50 @@ class GenericKDE(object):
         ----------
         See p.9 in socserv.mcmaster.ca/racine/np_faq.pdf
         """
-        pass
+        nobs, n_vars = self.data.shape
+        class_type, class_vars = self._get_class_vars_type()
+
+        if self.randomize:
+            n_iter = self.n_res
+        else:
+            n_iter = int(np.ceil(nobs / self.n_sub))
+
+        if has_joblib and self.n_jobs != 1:
+            parallel = joblib.Parallel(n_jobs=self.n_jobs)
+            scale_factors = parallel(joblib.delayed(_compute_subset)(
+                class_type, self.data, bw, self.co, self.do, self.n_cvars,
+                self.ix_ord, self.ix_unord, self.n_sub, class_vars,
+                self.randomize, self.bounds) for _ in range(n_iter))
+        else:
+            scale_factors = [_compute_subset(
+                class_type, self.data, bw, self.co, self.do, self.n_cvars,
+                self.ix_ord, self.ix_unord, self.n_sub, class_vars,
+                self.randomize, self.bounds) for _ in range(n_iter)]
+
+        scale_factors = np.array(scale_factors)
+
+        if self.return_median:
+            scale_factor = np.median(scale_factors, axis=0)
+        else:
+            scale_factor = np.mean(scale_factors, axis=0)
+
+        if self.return_only_bw:
+            return bw
+        else:
+            return bw * scale_factor
 
     def _set_defaults(self, defaults):
         """Sets the default values for the efficient estimation"""
-        pass
+        if defaults is None:
+            defaults = EstimatorSettings()
+        
+        self.efficient = defaults.efficient
+        self.randomize = defaults.randomize
+        self.n_res = defaults.n_res
+        self.n_sub = defaults.n_sub
+        self.return_median = defaults.return_median
+        self.return_only_bw = defaults.return_only_bw
+        self.n_jobs = defaults.n_jobs
 
     def _normal_reference(self):
         """
@@ -110,14 +181,19 @@ class GenericKDE(object):
         where ``n`` is the number of observations and ``q`` is the number of
         variables.
         """
-        pass
+        nobs, n_vars = self.data.shape
+        return 1.06 * self._compute_dispersion(self.data) * nobs ** (-1.0 / (4 + n_vars))
 
     def _set_bw_bounds(self, bw):
         """
-        Sets bandwidth lower bound to effectively zero )1e-10), and for
+        Sets bandwidth lower bound to effectively zero (1e-10), and for
         discrete values upper bound to 1.
         """
-        pass
+        bw = np.asarray(bw)
+        bw = np.maximum(bw, 1e-10)
+        bw[self.ix_ord] = np.minimum(bw[self.ix_ord], 1.0)
+        bw[self.ix_unord] = np.minimum(bw[self.ix_unord], 1.0)
+        return bw
 
     def _cv_ml(self):
         """
@@ -143,7 +219,15 @@ class GenericKDE(object):
         .. math:: K_{h}(X_{i},X_{j})=\\prod_{s=1}^
                         {q}h_{s}^{-1}k\\left(\\frac{X_{is}-X_{js}}{h_{s}}\\right)
         """
-        pass
+        def cv_func(bw):
+            return -np.sum(np.log(self._loo_likelihood(bw)))
+
+        nobs, n_vars = self.data.shape
+        bw_start = self._normal_reference()
+        bw_bounds = [(1e-10, None)] * n_vars
+
+        res = optimize.minimize(cv_func, bw_start, method='L-BFGS-B', bounds=bw_bounds)
+        return self._set_bw_bounds(res.x)
 
     def _cv_ls(self):
         """
@@ -163,7 +247,15 @@ class GenericKDE(object):
         conditional (``KDEMultivariateConditional``) and unconditional
         (``KDEMultivariate``) kernel density estimation.
         """
-        pass
+        def cv_func(bw):
+            return np.sum((self._loo_likelihood(bw) - self.data) ** 2)
+
+        nobs, n_vars = self.data.shape
+        bw_start = self._normal_reference()
+        bw_bounds = [(1e-10, None)] * n_vars
+
+        res = optimize.minimize(cv_func, bw_start, method='L-BFGS-B', bounds=bw_bounds)
+        return self._set_bw_bounds(res.x)
 
 class EstimatorSettings:
     """
@@ -257,7 +349,17 @@ class LeaveOneOut:
 
 def _adjust_shape(dat, k_vars):
     """ Returns an array of shape (nobs, k_vars) for use with `gpke`."""
-    pass
+    dat = np.asarray(dat)
+    if dat.ndim == 1:
+        nobs = len(dat)
+        dat = dat.reshape((nobs, 1))
+    elif dat.ndim > 2:
+        raise ValueError("Data must be 1D or 2D")
+
+    if dat.shape[1] != k_vars:
+        raise ValueError(f"Mismatch in number of variables: {dat.shape[1]} != {k_vars}")
+
+    return dat
 
 def gpke(bw, data, data_predict, var_type, ckertype='gaussian', okertype='wangryzin', ukertype='aitchisonaitken', tosum=True):
     """
@@ -302,4 +404,28 @@ def gpke(bw, data, data_predict, var_type, ckertype='gaussian', okertype='wangry
                 k\\left( \\frac{X_{i2}-x_{2}}{h_{2}}\\right)\\times...\\times
                 k\\left(\\frac{X_{iq}-x_{q}}{h_{q}}\\right)
     """
-    pass
+    k_vars = len(var_type)
+    data = _adjust_shape(data, k_vars)
+    data_predict = _adjust_shape(data_predict, k_vars)
+
+    nobs, _ = data.shape
+    nobs_predict, _ = data_predict.shape
+
+    dens = np.ones((nobs, nobs_predict))
+
+    for i in range(k_vars):
+        if var_type[i] == 'c':
+            kernel_func = kernel_func[ckertype]
+        elif var_type[i] == 'o':
+            kernel_func = kernel_func[okertype]
+        elif var_type[i] == 'u':
+            kernel_func = kernel_func[ukertype]
+        else:
+            raise ValueError(f"Invalid var_type: {var_type[i]}")
+
+        dens *= kernel_func(data[:, i][:, None], data_predict[:, i], bw[i])
+
+    if tosum:
+        return np.sum(dens, axis=0) / nobs
+    else:
+        return dens / nobs
