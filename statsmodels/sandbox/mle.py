@@ -11,11 +11,21 @@ import matplotlib.pyplot as plt
 
 def Rp(v):
     """ Gradient """
-    pass
+    global A, B
+    Av = A.dot(v)
+    Bv = B.dot(v)
+    vBv = v.dot(Bv)
+    return 2 * (Av * vBv - Bv * v.dot(Av)) / (vBv ** 2)
 
 def Rpp(v):
     """ Hessian """
-    pass
+    global A, B
+    Av = A.dot(v)
+    Bv = B.dot(v)
+    vAv = v.dot(Av)
+    vBv = v.dot(Bv)
+    return 2 * (A * vBv + B * vAv - outer(Av, Bv) - outer(Bv, Av)) / (vBv ** 2) - \
+           4 * (vAv * vBv) * outer(Bv, Bv) / (vBv ** 4)
 A = io.mmread('nos4.mtx')
 n = A.shape[0]
 B = speye(n, n)
