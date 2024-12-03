@@ -35,7 +35,26 @@ def _band2array(a, lower=0, symmetric=False, hermitian=False):
        hermitian -- if True (and symmetric False), return the original
                     result plus its conjugate transposed
     """
-    pass
+    a = np.asarray(a)
+    if a.ndim != 2:
+        raise ValueError("Input must be 2-dimensional")
+
+    n, k = a.shape
+    if lower:
+        result = np.zeros((n-k+1, n-k+1), dtype=a.dtype)
+        for i in range(k):
+            result[i:, i] = a[k-i-1, :n-k+i+1]
+    else:
+        result = np.zeros((n+k-1, n+k-1), dtype=a.dtype)
+        for i in range(k):
+            result[i, i:] = a[i, :n-i]
+
+    if symmetric:
+        return result + result.T - np.diag(result.diagonal())
+    elif hermitian:
+        return result + result.conj().T - np.diag(result.diagonal())
+    else:
+        return result
 
 def _upper2lower(ub):
     """
@@ -48,7 +67,12 @@ def _upper2lower(ub):
        lb  -- a lower triangular banded matrix with same entries
               as ub
     """
-    pass
+    ub = np.asarray(ub)
+    n, k = ub.shape
+    lb = np.zeros((k, n-k+1), dtype=ub.dtype)
+    for i in range(k):
+        lb[k-i-1, :n-i] = ub[i, i:]
+    return lb
 
 def _lower2upper(lb):
     """
@@ -61,7 +85,12 @@ def _lower2upper(lb):
        ub  -- an upper triangular banded matrix with same entries
               as lb
     """
-    pass
+    lb = np.asarray(lb)
+    k, n = lb.shape
+    ub = np.zeros((k, n+k-1), dtype=lb.dtype)
+    for i in range(k):
+        ub[i, i:n+i] = lb[k-i-1, :]
+    return ub
 
 def _triangle2unit(tb, lower=0):
     """
@@ -81,7 +110,18 @@ def _triangle2unit(tb, lower=0):
                 else lower is True, b is lower triangular banded
                 and its columns have been divieed by d.
     """
-    pass
+    tb = np.asarray(tb)
+    if lower:
+        d = tb[0]
+        b = tb.copy()
+        for i in range(tb.shape[0]):
+            b[i] /= d[:tb.shape[1]-i]
+    else:
+        d = np.diag(tb)
+        b = tb.copy()
+        for i in range(tb.shape[0]):
+            b[i, i:] /= d[i]
+    return d, b
 
 def _trace_symbanded(a, b, lower=0):
     """
@@ -96,7 +136,27 @@ def _trace_symbanded(a, b, lower=0):
     OUTPUTS: trace
        trace   -- trace(ab)
     """
-    pass
+    a = np.asarray(a)
+    b = np.asarray(b)
+    
+    if a.shape != b.shape:
+        raise ValueError("Matrices a and b must have the same shape")
+    
+    n, k = a.shape
+    trace = 0
+    
+    if lower:
+        for i in range(k):
+            trace += np.sum(a[i, :n-i] * b[i, :n-i])
+        trace *= 2
+        trace -= np.sum(a[0] * b[0])
+    else:
+        for i in range(k):
+            trace += np.sum(a[i, i:] * b[i, i:])
+        trace *= 2
+        trace -= np.sum(a[0] * b[0])
+    
+    return trace
 
 def _zero_triband(a, lower=0):
     """
@@ -106,7 +166,17 @@ def _zero_triband(a, lower=0):
        a   -- a real symmetric banded matrix (either upper or lower hald)
        lower   -- if True, a is assumed to be the lower half
     """
-    pass
+    a = np.asarray(a)
+    n, k = a.shape
+    
+    if lower:
+        for i in range(1, k):
+            a[i, n-k+i:] = 0
+    else:
+        for i in range(1, k):
+            a[i, :i] = 0
+    
+    return a
 
 class BSpline:
     """
@@ -196,7 +266,23 @@ class BSpline:
            y  -- value of d-th derivative of the i-th basis element
                  of the BSpline at specified x values
         """
-        pass
+        x = np.asarray(x)
+        m = self.m
+        t = self.tau
+        
+        if i < 0 or i >= len(self.coef):
+            raise ValueError("i must be between 0 and len(self.coef)-1")
+        
+        if d == 0:
+            # Use de Boor's algorithm for B-spline evaluation
+            return _hbspline.evaluate(t, x, m, i)
+        else:
+            # Use finite differences for derivatives
+            h = 1e-8
+            if d == 1:
+                return (self.basis_element(x + h, i) - self.basis_element(x - h, i)) / (2 * h)
+            elif d > 1:
+                return (self.basis_element(x, i, d-1) - self.basis_element(x - h, i, d-1)) / h
 
     def basis(self, x, d=0, lower=None, upper=None):
         """
@@ -217,7 +303,20 @@ class BSpline:
            y  -- value of d-th derivative of the basis elements
                  of the BSpline at specified x values
         """
-        pass
+        x = np.asarray(x)
+        n = self.coef.shape[0]
+        
+        if lower is None:
+            lower = 0
+        if upper is None:
+            upper = n
+        
+        result = np.zeros((upper - lower, x.shape[0]))
+        
+        for i in range(lower, upper):
+            result[i-lower] = self.basis_element(x, i, d)
+        
+        return result
 
     def gram(self, d=0):
         """
@@ -251,7 +350,25 @@ class BSpline:
            gram -- the matrix of inner products of (derivatives)
                    of the BSpline elements
         """
-        pass
+        from scipy import integrate
+        
+        n = self.coef.shape[0]
+        gram = np.zeros((self.m, n))
+        
+        if isinstance(d, np.ndarray) and d.ndim == 2:
+            def op(x):
+                return sum([coef * self.basis(x, der) for der, coef in zip(*d)])
+        else:
+            def op(x):
+                return self.basis(x, d)
+        
+        for i in range(n):
+            for j in range(max(0, i-self.m+1), i+1):
+                def integrand(x):
+                    return op(x)[i-j] * op(x)[0]
+                gram[i-j, j] = integrate.quad(integrand, self.tau[0], self.tau[-1])[0]
+        
+        return gram
 
 class SmoothingSpline(BSpline):
     penmax = 30.0
@@ -293,7 +410,33 @@ class SmoothingSpline(BSpline):
            Should add arbitrary derivative penalty instead of just
            second derivative.
         """
-        pass
+        if x is None:
+            x = self.x
+        
+        x = np.asarray(x)
+        y = np.asarray(y)
+        
+        if weights is None:
+            weights = np.ones_like(y)
+        else:
+            weights = np.asarray(weights)
+        
+        B = self.basis(x)
+        BtWB = np.dot(B.T * weights, B)
+        BtWy = np.dot(B.T * weights, y)
+        
+        G = self.gram(d=2)  # Second derivative penalty
+        P = pen * G
+        
+        coef = np.linalg.solve(BtWB + P, BtWy)
+        
+        self.coef = coef
+        self.N = len(y)
+        self.BtWB = BtWB
+        self.BtWy = BtWy
+        self.B = B
+        self.y = y
+        self.weights = weights
 
     def gcv(self):
         """
@@ -304,7 +447,9 @@ class SmoothingSpline(BSpline):
         the method of generalized cross-validation."
         Numerische Mathematik, 31(4), 377-403.
         """
-        pass
+        resid = self.y - np.dot(self.B, self.coef)
+        tr = self.trace()
+        return (np.sum(resid**2) / self.N) / ((1 - tr / self.N)**2)
 
     def df_resid(self):
         """
@@ -314,7 +459,7 @@ class SmoothingSpline(BSpline):
 
         where self.N is the number of observations of last fit.
         """
-        pass
+        return self.N - self.trace()
 
     def df_fit(self):
         """
@@ -322,7 +467,7 @@ class SmoothingSpline(BSpline):
 
         self.trace()
         """
-        pass
+        return self.trace()
 
     def trace(self):
         """
@@ -330,7 +475,7 @@ class SmoothingSpline(BSpline):
 
         TODO: addin a reference to Wahba, and whoever else I used.
         """
-        pass
+        return np.trace(np.linalg.inv(self.BtWB + self.pen * self.gram(d=2)).dot(self.BtWB))
 
     def fit_target_df(self, y, x=None, df=None, weights=None, tol=0.001, apen=0, bpen=0.001):
         """
@@ -356,7 +501,13 @@ class SmoothingSpline(BSpline):
            The smoothing spline is determined by self.coef,
            subsequent calls of __call__ will be the smoothing spline.
         """
-        pass
+        def df_diff(pen):
+            self.fit(y, x, weights, pen)
+            return self.trace() - df
+
+        from scipy import optimize
+        pen = optimize.bisect(df_diff, apen, bpen, xtol=tol)
+        self.fit(y, x, weights, pen)
 
     def fit_optimize_gcv(self, y, x=None, weights=None, tol=0.001, brack=(-100, 20)):
         """
@@ -380,4 +531,10 @@ class SmoothingSpline(BSpline):
            The smoothing spline is determined by self.coef,
            subsequent calls of __call__ will be the smoothing spline.
         """
-        pass
+        def gcv(pen):
+            self.fit(y, x, weights, np.exp(pen))
+            return self.gcv()
+
+        from scipy import optimize
+        pen = optimize.golden(gcv, brack=brack, tol=tol)
+        self.fit(y, x, weights, np.exp(pen))
