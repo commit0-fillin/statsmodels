@@ -9,7 +9,9 @@ from scipy import linalg
 def tiny2zero(x, eps=1e-15):
     """replace abs values smaller than eps by zero, makes copy
     """
-    pass
+    x_copy = np.array(x, copy=True)
+    x_copy[np.abs(x_copy) < eps] = 0
+    return x_copy
 nobs = 5
 autocov = 0.8 ** np.arange(nobs)
 autocov = np.array([3.0, 2.0, 1.0, 0.4, 0.12, 0.016, -0.0112, 0.016, -0.0112, -0.01216, -0.007488, -0.0035584]) / 3.0
