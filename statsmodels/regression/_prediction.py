@@ -55,6 +55,10 @@ class PredictionResults:
 
         Parameters
         ----------
+        obs : bool, optional
+            If True, returns prediction interval for observations.
+            If False, returns confidence interval for the mean.
+            Default is False.
         alpha : float, optional
             The significance level for the confidence interval.
             ie., The default `alpha` = .05 returns a 95% confidence interval.
@@ -65,7 +69,11 @@ class PredictionResults:
             The array has the lower and the upper limit of the confidence
             interval in the columns.
         """
-        pass
+        std_errors = np.sqrt(self.var_pred + (self.var_resid if obs else 0))
+        q = self.dist.ppf(1 - alpha / 2, *self.dist_args)
+        lower = self.predicted - q * std_errors
+        upper = self.predicted + q * std_errors
+        return np.column_stack((lower, upper))
 
 def get_prediction(self, exog=None, transform=True, weights=None, row_labels=None, pred_kwds=None):
     """
@@ -88,9 +96,9 @@ def get_prediction(self, exog=None, transform=True, weights=None, row_labels=Non
     row_labels : list
         A list of row labels to use.  If not provided, read `exog` is
         available.
-    **kwargs
-        Some models can take additional keyword arguments, see the predict
-        method of the model for the details.
+    pred_kwds : dict, optional
+        Additional keyword arguments to be passed to the model's predict
+        method.
 
     Returns
     -------
@@ -99,4 +107,31 @@ def get_prediction(self, exog=None, transform=True, weights=None, row_labels=Non
         variance and can on demand calculate confidence intervals and summary
         tables for the prediction of the mean and of new observations.
     """
-    pass
+    if pred_kwds is None:
+        pred_kwds = {}
+    
+    if exog is not None:
+        if transform:
+            exog = self.model.apply_transform(exog)
+        exog = np.asarray(exog)
+    else:
+        exog = self.model.exog
+    
+    if weights is None:
+        weights = getattr(self.model, 'weights', None)
+    
+    predicted_mean = self.model.predict(exog, **pred_kwds)
+    var_pred_mean = self.model.predict_var(exog)
+    var_resid = self.model.scale
+    
+    if weights is not None:
+        var_resid = var_resid / weights
+    
+    df = getattr(self.model, 'df_resid', np.inf)
+    dist = getattr(self.model, 'distribution', stats.norm)
+    
+    if row_labels is None:
+        row_labels = getattr(exog, 'index', None)
+    
+    return PredictionResults(predicted_mean, var_pred_mean, var_resid, 
+                             df=df, dist=dist, row_labels=row_labels)
