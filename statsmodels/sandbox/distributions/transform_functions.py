@@ -11,7 +11,7 @@ import numpy as np
 class TransformFunction:
 
     def __call__(self, x):
-        self.func(x)
+        return self.func(x)
 
 class SquareFunc(TransformFunction):
     """class to hold quadratic function with inverse function and derivative
@@ -30,10 +30,24 @@ class AbsFunc(TransformFunction):
     """
 
 class LogFunc(TransformFunction):
-    pass
+    def func(self, x):
+        return np.log(x)
+    
+    def inverse(self, x):
+        return np.exp(x)
+    
+    def derivative(self, x):
+        return 1 / x
 
 class ExpFunc(TransformFunction):
-    pass
+    def func(self, x):
+        return np.exp(x)
+    
+    def inverse(self, x):
+        return np.log(x)
+    
+    def derivative(self, x):
+        return np.exp(x)
 
 class BoxCoxNonzeroFunc(TransformFunction):
 
