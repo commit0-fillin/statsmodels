@@ -18,7 +18,12 @@ def logdet_symm(m, check_symm=False):
     logdet : float
         The log-determinant of m.
     """
-    pass
+    if check_symm and not np.allclose(m, m.T):
+        raise ValueError("Input matrix is not symmetric")
+    
+    # Use Cholesky decomposition to compute log-determinant
+    L = np.linalg.cholesky(m)
+    return 2 * np.sum(np.log(np.diag(L)))
 
 def stationary_solve(r, b):
     """
@@ -40,7 +45,16 @@ def stationary_solve(r, b):
     -------
     The solution to the linear system.
     """
-    pass
+    from scipy import linalg
+    r = np.asarray(r)
+    b = np.asarray(b)
+    n = len(b)
+    
+    # Construct the first column of the Toeplitz matrix
+    c = np.r_[1, r[:n-1]]
+    
+    # Solve the system using Levinson recursion
+    return linalg.solve_toeplitz(c, b)
 
 def transf_constraints(constraints):
     """use QR to get transformation matrix to impose constraint
@@ -69,7 +83,10 @@ def transf_constraints(constraints):
     statsmodels.base._constraints.TransformRestriction : class to impose
         constraints by reparameterization used by `_fit_constrained`.
     """
-    pass
+    Q, R = np.linalg.qr(constraints.T)
+    m, n = constraints.shape
+    transf = Q[:, m:]
+    return transf
 
 def matrix_sqrt(mat, inverse=False, full=False, nullspace=False, threshold=1e-15):
     """matrix square root for symmetric matrices
@@ -107,4 +124,24 @@ def matrix_sqrt(mat, inverse=False, full=False, nullspace=False, threshold=1e-15
     msqrt : ndarray
         matrix square root or square root of inverse matrix.
     """
-    pass
+    U, s, Vt = np.linalg.svd(mat, full_matrices=False)
+    
+    if np.any(s < -threshold):
+        import warnings
+        warnings.warn("Some singular values are negative.")
+    
+    mask = s > threshold
+    s_sqrt = np.sqrt(s[mask])
+    
+    if inverse:
+        s_sqrt = 1 / s_sqrt
+    
+    if nullspace:
+        s_sqrt = np.sqrt(1 - s[mask]**2 / s[0]**2)
+    
+    if full:
+        msqrt = U * s_sqrt
+    else:
+        msqrt = (U[:, mask] * s_sqrt).dot(Vt[mask])
+    
+    return msqrt
