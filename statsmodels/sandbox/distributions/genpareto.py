@@ -34,14 +34,19 @@ def paramstopot(thresh, shape, scale):
     notation of de Zea Bermudez, Kotz
     k, sigma is shape, scale
     """
-    pass
+    new_scale = scale - shape * thresh
+    return shape, new_scale
 
 def meanexcess(thresh, shape, scale):
     """mean excess function of genpareto
 
     assert are inequality conditions in de Zea Bermudez, Kotz
     """
-    pass
+    assert shape < 1, "Shape parameter must be less than 1"
+    assert scale > 0, "Scale parameter must be positive"
+    assert thresh >= 0, "Threshold must be non-negative"
+    
+    return (scale + shape * thresh) / (1 - shape)
 print(meanexcess(5, -0.5, 10))
 print(meanexcess(5, -2, 10))
 data = genpareto2.rvs(-0.75, scale=5, size=1000)
