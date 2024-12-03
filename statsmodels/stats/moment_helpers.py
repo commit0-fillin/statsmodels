@@ -18,13 +18,21 @@ def mc2mnc(mc):
     """convert central to non-central moments, uses recursive formula
     optionally adjusts first moment to return mean
     """
-    pass
+    mnc = [mc[0]]
+    for k in range(1, len(mc)):
+        mnc_k = sum(comb(k, i) * mc[i] * mc[0]**(k-i) for i in range(k+1))
+        mnc.append(mnc_k)
+    return np.array(mnc)
 
 def mnc2mc(mnc, wmean=True):
     """convert non-central to central moments, uses recursive formula
     optionally adjusts first moment to return mean
     """
-    pass
+    mc = [mnc[0] if wmean else 0]
+    for k in range(1, len(mnc)):
+        mc_k = mnc[k] - sum(comb(k, i) * mc[i] * mnc[0]**(k-i) for i in range(1, k+1))
+        mc.append(mc_k)
+    return np.array(mc)
 
 def cum2mc(kappa):
     """convert non-central moments to cumulants
@@ -34,7 +42,11 @@ def cum2mc(kappa):
     ----------
     Kenneth Lange: Numerical Analysis for Statisticians, page 40
     """
-    pass
+    mc = [kappa[0]]
+    for n in range(1, len(kappa)):
+        mc_n = kappa[n] + sum(comb(n-1, k-1) * kappa[k] * mc[n-k] for k in range(1, n))
+        mc.append(mc_n)
+    return np.array(mc)
 
 def mnc2cum(mnc):
     """convert non-central moments to cumulants
@@ -42,30 +54,44 @@ def mnc2cum(mnc):
 
     https://en.wikipedia.org/wiki/Cumulant#Cumulants_and_moments
     """
-    pass
+    cum = [mnc[0]]
+    for n in range(1, len(mnc)):
+        cum_n = mnc[n] - sum(comb(n-1, k-1) * cum[k] * mnc[n-k] for k in range(1, n))
+        cum.append(cum_n)
+    return np.array(cum)
 
 def mc2cum(mc):
     """
     just chained because I have still the test case
     """
-    pass
+    mnc = mc2mnc(mc)
+    return mnc2cum(mnc)
 
 def mvsk2mc(args):
     """convert mean, variance, skew, kurtosis to central moments"""
-    pass
+    mean, var, skew, kurt = args
+    std = np.sqrt(var)
+    mc = [mean, var, skew * std**3, kurt * var**2]
+    return np.array(mc)
 
 def mvsk2mnc(args):
     """convert mean, variance, skew, kurtosis to non-central moments"""
-    pass
+    mc = mvsk2mc(args)
+    return mc2mnc(mc)
 
 def mc2mvsk(args):
     """convert central moments to mean, variance, skew, kurtosis"""
-    pass
+    mean, var, mc3, mc4 = args
+    std = np.sqrt(var)
+    skew = mc3 / (std**3)
+    kurt = mc4 / (var**2)
+    return np.array([mean, var, skew, kurt])
 
 def mnc2mvsk(args):
     """convert central moments to mean, variance, skew, kurtosis
     """
-    pass
+    mc = mnc2mc(args)
+    return mc2mvsk(mc)
 
 def cov2corr(cov, return_std=False):
     """
@@ -89,7 +115,13 @@ def cov2corr(cov, return_std=False):
     This function does not convert subclasses of ndarrays. This requires that
     division is defined elementwise. np.ma.array and np.matrix are allowed.
     """
-    pass
+    cov = np.asarray(cov)
+    std = np.sqrt(np.diag(cov))
+    corr = cov / np.outer(std, std)
+    if return_std:
+        return corr, std
+    else:
+        return corr
 
 def corr2cov(corr, std):
     """
@@ -113,7 +145,10 @@ def corr2cov(corr, std):
     that multiplication is defined elementwise. np.ma.array are allowed, but
     not matrices.
     """
-    pass
+    corr = np.asarray(corr)
+    std = np.asarray(std)
+    cov = corr * np.outer(std, std)
+    return cov
 
 def se_cov(cov):
     """
@@ -131,4 +166,4 @@ def se_cov(cov):
     std : ndarray
         standard deviation from diagonal of cov
     """
-    pass
+    return np.sqrt(np.diag(cov))
