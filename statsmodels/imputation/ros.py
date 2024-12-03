@@ -44,7 +44,20 @@ def _ros_sort(df, observations, censorship, warn=False):
         The sorted dataframe with all columns dropped except the
         observation and censorship columns.
     """
-    pass
+    # Sort the dataframe
+    df = df.sort_values(by=[censorship, observations], ascending=[False, True])
+    
+    # Find the maximum uncensored observation
+    max_uncensored = df.loc[~df[censorship], observations].max()
+    
+    # Remove censored observations larger than the maximum uncensored observation
+    df = df[~(df[censorship] & (df[observations] > max_uncensored))]
+    
+    if warn and (df[censorship] & (df[observations] > max_uncensored)).any():
+        warnings.warn("Censored observations larger than the maximum uncensored observation were removed.")
+    
+    # Keep only the observations and censorship columns
+    return df[[observations, censorship]]
 
 def cohn_numbers(df, observations, censorship):
     """
@@ -82,7 +95,21 @@ def cohn_numbers(df, observations, censorship):
     -------
     cohn : DataFrame
     """
-    pass
+    # Get unique, sorted detection limits
+    detection_limits = sorted(df.loc[df[censorship], observations].unique())
+    
+    cohn = pd.DataFrame({
+        'DL': detection_limits,
+        'DLj+1': detection_limits[1:] + [np.inf],
+        'Aj': [sum((~df[censorship]) & (df[observations] > dl)) for dl in detection_limits],
+        'Bj': [sum(df[observations] < dl) for dl in detection_limits],
+        'Cj': [sum((df[censorship]) & (df[observations] == dl)) for dl in detection_limits],
+    })
+    
+    cohn['n'] = len(df)
+    cohn['PEj'] = (cohn['Aj'] + cohn['Cj']) / cohn['n']
+    
+    return cohn
 
 def _detection_limit_index(obs, cohn):
     """
@@ -108,7 +135,7 @@ def _detection_limit_index(obs, cohn):
     --------
     cohn_numbers
     """
-    pass
+    return np.searchsorted(cohn['DL'].values, obs)
 
 def _ros_group_rank(df, dl_idx, censorship):
     """
@@ -136,7 +163,13 @@ def _ros_group_rank(df, dl_idx, censorship):
     ranks : ndarray
         Array of ranks for the dataset.
     """
-    pass
+    # Group by detection limit index and censorship status
+    groups = df.groupby([dl_idx, censorship])
+    
+    # Rank within each group
+    ranks = groups.rank(method='average')
+    
+    return ranks.values.flatten()
 
 def _ros_plot_pos(row, censorship, cohn):
     """
@@ -167,7 +200,15 @@ def _ros_plot_pos(row, censorship, cohn):
     --------
     cohn_numbers
     """
-    pass
+    DL_index = row['detection_limit']
+    rank = row['rank']
+    
+    if row[censorship]:
+        plot_pos = (rank - 0.5) / cohn.loc[DL_index, 'n']
+    else:
+        plot_pos = (rank - 0.5) / cohn.loc[DL_index, 'n'] + cohn.loc[DL_index, 'PEj']
+    
+    return plot_pos
 
 def _norm_plot_pos(observations):
     """
@@ -182,7 +223,7 @@ def _norm_plot_pos(observations):
     -------
     plotting_position : array of floats
     """
-    pass
+    return stats.norm.ppf((np.arange(1, len(observations) + 1) - 0.5) / len(observations))
 
 def plotting_positions(df, censorship, cohn):
     """
@@ -211,7 +252,16 @@ def plotting_positions(df, censorship, cohn):
     --------
     cohn_numbers
     """
-    pass
+    # Compute detection limit index for each observation
+    df['detection_limit'] = df['observations'].apply(lambda x: _detection_limit_index(x, cohn))
+    
+    # Compute rank within groups
+    df['rank'] = _ros_group_rank(df, 'detection_limit', censorship)
+    
+    # Compute plotting positions
+    plot_pos = df.apply(lambda row: _ros_plot_pos(row, censorship, cohn), axis=1)
+    
+    return plot_pos.values
 
 def _impute(df, observations, censorship, transform_in, transform_out):
     """
@@ -245,7 +295,34 @@ def _impute(df, observations, censorship, transform_in, transform_out):
         only where the original observations were censored, and the original
         observations everwhere else.
     """
-    pass
+    # Compute Cohn numbers
+    cohn = cohn_numbers(df, observations, censorship)
+    
+    # Compute plotting positions
+    df['plotting_pos'] = plotting_positions(df, censorship, cohn)
+    
+    # Get uncensored data
+    uncensored = df.loc[~df[censorship]]
+    
+    # Fit line to uncensored data
+    x = _norm_plot_pos(uncensored[observations])
+    y = transform_in(uncensored[observations])
+    slope, intercept, _, _, _ = stats.linregress(x, y)
+    
+    # Estimate censored values
+    censored = df.loc[df[censorship]]
+    x_censored = _norm_plot_pos(censored['plotting_pos'])
+    y_estimated = slope * x_censored + intercept
+    
+    # Create estimated column
+    df['estimated'] = df[observations]
+    df.loc[df[censorship], 'estimated'] = transform_out(y_estimated)
+    
+    # Create final column
+    df['final'] = df[observations]
+    df.loc[df[censorship], 'final'] = df.loc[df[censorship], 'estimated']
+    
+    return df
 
 def _do_ros(df, observations, censorship, transform_in, transform_out):
     """
@@ -282,7 +359,13 @@ def _do_ros(df, observations, censorship, transform_in, transform_out):
         only where the original observations were censored, and the original
         observations everwhere else.
     """
-    pass
+    # Sort the dataframe
+    df_sorted = _ros_sort(df, observations, censorship)
+    
+    # Impute censored values
+    df_estimated = _impute(df_sorted, observations, censorship, transform_in, transform_out)
+    
+    return df_estimated
 
 def impute_ros(observations, censorship, df=None, min_uncensored=2, max_fraction_censored=0.8, substitution_fraction=0.5, transform_in=np.log, transform_out=np.exp, as_array=True):
     """
@@ -347,4 +430,28 @@ def impute_ros(observations, censorship, df=None, min_uncensored=2, max_fraction
     -----
     This function requires pandas 0.14 or more recent.
     """
-    pass
+    # If observations and censorship are not in a dataframe, create one
+    if df is None:
+        df = pd.DataFrame({'observations': observations, 'censorship': censorship})
+    else:
+        df = df.copy()
+    
+    # Check if we have enough uncensored data and not too many censored data
+    n_uncensored = (~df[censorship]).sum()
+    fraction_censored = df[censorship].mean()
+    
+    if n_uncensored >= min_uncensored and fraction_censored <= max_fraction_censored:
+        # Perform ROS
+        df_ros = _do_ros(df, 'observations', censorship, transform_in, transform_out)
+        imputed = df_ros['final']
+    else:
+        # Perform simple substitution
+        detection_limit = df.loc[df[censorship], 'observations'].min()
+        imputed = df['observations'].copy()
+        imputed[df[censorship]] = substitution_fraction * detection_limit
+    
+    if as_array:
+        return imputed.values
+    else:
+        df['imputed'] = imputed
+        return df
