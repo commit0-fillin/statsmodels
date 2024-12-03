@@ -10,25 +10,25 @@ def fg1(x):
     """Fan and Gijbels example function 1
 
     """
-    pass
+    return 2 + 2 * np.cos(x)
 
 def fg1eu(x):
     """Eubank similar to Fan and Gijbels example function 1
 
     """
-    pass
+    return 2 + 2 * np.exp(-16 * x**2)
 
 def fg2(x):
     """Fan and Gijbels example function 2
 
     """
-    pass
+    return np.sin(2 * x) + 2 * np.exp(-16 * x**2)
 
 def func1(x):
     """made up example with sin, square
 
     """
-    pass
+    return np.sin(x) + 0.5 * x**2
 doc = {'description': "Base Class for Univariate non-linear example\n\n    Does not work on it's own.\n    needs additional at least self.func\n", 'ref': ''}
 
 class _UnivariateFunction:
@@ -69,7 +69,22 @@ class _UnivariateFunction:
             with ax if ax is given.
 
         """
-        pass
+        import matplotlib.pyplot as plt
+
+        if ax is None:
+            fig, ax = plt.subplots()
+        else:
+            fig = ax.figure
+
+        ax.plot(self.x, self.y_true, 'r-', label='True function')
+        if scatter:
+            ax.scatter(self.x, self.y, alpha=0.5, label='Observed data')
+
+        ax.set_xlabel('x')
+        ax.set_ylabel('y')
+        ax.legend()
+
+        return fig
 doc = {'description': 'Fan and Gijbels example function 1\n\nlinear trend plus a hump\n', 'ref': '\nReferences\n----------\nFan, Jianqing, and Irene Gijbels. 1992. "Variable Bandwidth and Local\nLinear Regression Smoothers."\nThe Annals of Statistics 20 (4) (December): 2008-2036. doi:10.2307/2242378.\n\n'}
 
 class UnivariateFanGijbels1(_UnivariateFunction):
