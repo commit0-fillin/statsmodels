@@ -84,19 +84,38 @@ class GLM(base.LikelihoodModel):
         """
         Initialize a generalized linear model.
         """
-        pass
+        self.exog = self.exog
+        self.endog = self.endog
+        self.nobs = self.endog.shape[0]
+        self.nparams = self.exog.shape[1]
+        self.df_model = self.nparams - 1
+        self.df_resid = self.nobs - self.nparams
+        self.offset = getattr(self, 'offset', 0)
+        self.exposure = getattr(self, 'exposure', 0)
+        self._offset_exposure = self.offset + self.exposure
+        self.mu = self.family.starting_mu(self.endog)
+        self.scale = 1.
+        self.scaletype = 'deviance'
+        self.iteration = 0
+        self.history = {'deviance': [np.inf], 'params': [np.inf], 'scale': []}
 
     def loglike_mu(self, mu, scale=1.0):
         """
         Evaluate the log-likelihood for a generalized linear model.
         """
-        pass
+        return self.family.loglike(self.endog, mu, scale=scale,
+                                   freq_weights=self.freq_weights,
+                                   var_weights=self.var_weights)
 
     def loglike(self, params, scale=None):
         """
         Evaluate the log-likelihood for a generalized linear model.
         """
-        pass
+        lin_pred = np.dot(self.exog, params) + self._offset_exposure
+        mu = self.family.link.inverse(lin_pred)
+        if scale is None:
+            scale = self.estimate_scale(mu)
+        return self.loglike_mu(mu, scale)
 
     def score_obs(self, params, scale=None):
         """score first derivative of the loglikelihood for each observation.
@@ -116,7 +135,11 @@ class GLM(base.LikelihoodModel):
             The first derivative of the loglikelihood function evaluated at
             params for each observation.
         """
-        pass
+        mu = self.predict(params)
+        if scale is None:
+            scale = self.estimate_scale(mu)
+        score_factor = self.family.score_factor(self.endog, mu, scale, self.var_weights)
+        return score_factor[:, None] * self.exog
 
     def score(self, params, scale=None):
         """score, first derivative of the loglikelihood function
@@ -136,7 +159,8 @@ class GLM(base.LikelihoodModel):
             The first derivative of the loglikelihood function calculated as
             the sum of `score_obs`
         """
-        pass
+        score_obs = self.score_obs(params, scale=scale)
+        return np.sum(score_obs, axis=0)
 
     def score_factor(self, params, scale=None):
         """weights for score for each observation
@@ -158,7 +182,10 @@ class GLM(base.LikelihoodModel):
             A 1d weight vector used in the calculation of the score_obs.
             The score_obs are obtained by `score_factor[:, None] * exog`
         """
-        pass
+        mu = self.predict(params)
+        if scale is None:
+            scale = self.estimate_scale(mu)
+        return self.family.score_factor(self.endog, mu, scale, self.var_weights)
 
     def hessian_factor(self, params, scale=None, observed=True):
         """Weights for calculating Hessian
