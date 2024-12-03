@@ -30,7 +30,33 @@ def armaloop(arcoefs, macoefs, x):
     Except for the treatment of initial observations this is the same as using
     scipy.signal.lfilter, which is much faster. Written for testing only
     """
-    pass
+    x = np.asarray(x)
+    n = len(x)
+    p = len(arcoefs)
+    q = len(macoefs)
+    
+    y = np.zeros(n)
+    e = np.zeros(n)
+    
+    # Initialize the first p values of y with x
+    y[:p] = x[:p]
+    
+    for t in range(p, n):
+        # AR part
+        ar_term = np.sum(arcoefs * y[t-p:t][::-1])
+        
+        # MA part
+        ma_term = 0
+        if t >= q:
+            ma_term = np.sum(macoefs * e[t-q:t][::-1])
+        
+        # Calculate predicted value
+        y[t] = x[t] + ar_term + ma_term
+        
+        # Calculate error
+        e[t] = x[t] - y[t]
+    
+    return y, e
 arcoefs, macoefs = (-np.array([1, -0.8, 0.2])[1:], np.array([1.0, 0.5, 0.1])[1:])
 print(armaloop(arcoefs, macoefs, np.ones(10)))
 print(armaloop([0.8], [], np.ones(10)))
