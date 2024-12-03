@@ -22,7 +22,20 @@ def _model2dataframe(model_endog, model_exog, model_type=OLS, **kwargs):
 
     All the exceding parameters will be redirected to the linear model
     """
-    pass
+    model = model_type(model_endog, model_exog, **kwargs)
+    results = model.fit()
+    
+    summary = pd.Series({
+        'params': results.params,
+        'pvalues': results.pvalues,
+        'bse': results.bse,
+        'rsquared': results.rsquared,
+        'rsquared_adj': results.rsquared_adj,
+        'fvalue': results.fvalue,
+        'f_pvalue': results.f_pvalue
+    })
+    
+    return summary
 
 def multiOLS(model, dataframe, column_list=None, method='fdr_bh', alpha=0.05, subset=None, model_type=OLS, **kwargs):
     """apply a linear model to several endogenous variables on a dataframe
@@ -122,7 +135,46 @@ def multiOLS(model, dataframe, column_list=None, method='fdr_bh', alpha=0.05, su
     Even a single column name can be given without enclosing it in a list
     >>> multiOLS('GNP + 0', df, 'GNPDEFL')
     """
-    pass
+    if column_list is None:
+        column_list = [col for col in dataframe.columns if col not in model.split() and np.issubdtype(dataframe[col].dtype, np.number)]
+    elif isinstance(column_list, str):
+        column_list = [column_list]
+
+    results = {}
+    for column in column_list:
+        y = dataframe[column]
+        X = dmatrix(model, dataframe, return_type='dataframe')
+        
+        if subset is not None:
+            y = y[subset]
+            X = X[subset]
+        
+        model_results = _model2dataframe(y, X, model_type, **kwargs)
+        results[column] = model_results
+
+    summary = pd.DataFrame(results).T
+    
+    # Perform multiple testing correction
+    pvalues = summary['pvalues']
+    reject, pvals_corrected, _, _ = stats.multipletests(pvalues, alpha=alpha, method=method)
+    summary['adj_pvals'] = pvals_corrected
+
+    # Reorganize the DataFrame structure
+    summary = pd.DataFrame({
+        'params': summary['params'],
+        'pval': summary['pvalues'],
+        'adj_pval': summary['adj_pvals'],
+        'std': summary['bse'],
+        'statistics': pd.DataFrame({
+            'rsquared': summary['rsquared'],
+            'rsquared_adj': summary['rsquared_adj']
+        })
+    })
+
+    summary['params']['_f_test'] = summary['fvalue']
+    summary['pval']['_f_test'] = summary['f_pvalue']
+
+    return summary
 
 def _test_group(pvalues, group_name, group, exact=True):
     """test if the objects in the group are different from the general set.
@@ -130,7 +182,27 @@ def _test_group(pvalues, group_name, group, exact=True):
     The test is performed on the pvalues set (ad a pandas series) over
     the group specified via a fisher exact test.
     """
-    pass
+    in_group = pvalues.index.isin(group)
+    significant = pvalues < 0.05
+
+    contingency_table = pd.crosstab(in_group, significant)
+    
+    if exact:
+        _, p_value = stats.fisher_exact(contingency_table)
+    else:
+        _, p_value, _, _ = stats.chi2_contingency(contingency_table)
+    
+    odds_ratio = (contingency_table.loc[True, True] * contingency_table.loc[False, False]) / \
+                 (contingency_table.loc[True, False] * contingency_table.loc[False, True])
+    
+    return pd.Series({
+        'pvals': p_value,
+        'increase': np.log(odds_ratio),
+        '_in_sign': contingency_table.loc[True, True],
+        '_in_non': contingency_table.loc[True, False],
+        '_out_sign': contingency_table.loc[False, True],
+        '_out_non': contingency_table.loc[False, False]
+    }, name=group_name)
 
 def multigroup(pvals, groups, exact=True, keep_all=True, alpha=0.05):
     """Test if the given groups are different from the total partition.
@@ -207,4 +279,18 @@ def multigroup(pvals, groups, exact=True, keep_all=True, alpha=0.05):
     do the analysis of the significativity
     >>> multigroup(pvals < 0.05, groups)
     """
-    pass
+    results = []
+    for group_name, group in groups.items():
+        result = _test_group(pvals, group_name, group, exact)
+        results.append(result)
+    
+    result_df = pd.DataFrame(results)
+    
+    # Perform multiple testing correction
+    reject, pvals_corrected, _, _ = stats.multipletests(result_df['pvals'], alpha=alpha, method='fdr_bh')
+    result_df['adj_pvals'] = pvals_corrected
+    
+    if not keep_all:
+        result_df = result_df[result_df['increase'] > 0]
+    
+    return result_df.sort_values('adj_pvals')
