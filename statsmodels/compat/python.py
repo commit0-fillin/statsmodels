@@ -9,7 +9,10 @@ __all__ = ['asunicode', 'asstr', 'asbytes', 'Literal', 'lmap', 'lzip', 'lrange',
 
 def with_metaclass(meta, *bases):
     """Create a base class with a metaclass."""
-    pass
+    class metaclass(type):
+        def __new__(cls, name, this_bases, d):
+            return meta(name, bases, d)
+    return type.__new__(metaclass, 'temporary_class', (), {})
 if sys.version_info >= (3, 8):
     from typing import Literal
 elif TYPE_CHECKING:
