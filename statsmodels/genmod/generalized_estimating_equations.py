@@ -89,7 +89,7 @@ class ParameterConstraint:
         exog : array_like
            The exogeneous data for the model.
         """
-        pass
+        return self._offset_increment
 
     def reduced_exog(self):
         """
@@ -101,28 +101,30 @@ class ParameterConstraint:
         exog : array_like
            The exogeneous data for the model.
         """
-        pass
+        return self.exog_fulltrans[:, :self.lhs0.shape[1]]
 
     def restore_exog(self):
         """
         Returns the full exog matrix before it was reduced to
         satisfy the constraint.
         """
-        pass
+        return self.orig_exog
 
     def unpack_param(self, params):
         """
         Converts the parameter vector `params` from reduced to full
         coordinates.
         """
-        pass
+        return np.dot(self.lhsf, np.concatenate((params, self.param0)))
 
     def unpack_cov(self, bcov):
         """
         Converts the covariance matrix `bcov` from reduced to full
         coordinates.
         """
-        pass
+        m = self.lhs0.shape[1]
+        lhs0 = self.lhsf[:, :m]
+        return np.dot(lhs0, np.dot(bcov, lhs0.T))
 _gee_init_doc = '\n    Marginal regression model fit using Generalized Estimating Equations.\n\n    GEE can be used to fit Generalized Linear Models (GLMs) when the\n    data have a grouped structure, and the observations are possibly\n    correlated within groups but not between groups.\n\n    Parameters\n    ----------\n    endog : array_like\n        1d array of endogenous values (i.e. responses, outcomes,\n        dependent variables, or \'Y\' values).\n    exog : array_like\n        2d array of exogeneous values (i.e. covariates, predictors,\n        independent variables, regressors, or \'X\' values). A `nobs x\n        k` array where `nobs` is the number of observations and `k` is\n        the number of regressors. An intercept is not included by\n        default and should be added by the user. See\n        `statsmodels.tools.add_constant`.\n    groups : array_like\n        A 1d array of length `nobs` containing the group labels.\n    time : array_like\n        A 2d array of time (or other index) values, used by some\n        dependence structures to define similarity relationships among\n        observations within a cluster.\n    family : family class instance\n%(family_doc)s\n    cov_struct : CovStruct class instance\n        The default is Independence.  To specify an exchangeable\n        structure use cov_struct = Exchangeable().  See\n        statsmodels.genmod.cov_struct.CovStruct for more\n        information.\n    offset : array_like\n        An offset to be included in the fit.  If provided, must be\n        an array whose length is the number of rows in exog.\n    dep_data : array_like\n        Additional data passed to the dependence structure.\n    constraint : (ndarray, ndarray)\n        If provided, the constraint is a tuple (L, R) such that the\n        model parameters are estimated under the constraint L *\n        param = R, where L is a q x p matrix and R is a\n        q-dimensional vector.  If constraint is provided, a score\n        test is performed to compare the constrained model to the\n        unconstrained model.\n    update_dep : bool\n        If true, the dependence parameters are optimized, otherwise\n        they are held fixed at their starting values.\n    weights : array_like\n        An array of case weights to use in the analysis.\n    %(extra_params)s\n\n    See Also\n    --------\n    statsmodels.genmod.families.family\n    :ref:`families`\n    :ref:`links`\n\n    Notes\n    -----\n    Only the following combinations make sense for family and link ::\n\n                   + ident log logit probit cloglog pow opow nbinom loglog logc\n      Gaussian     |   x    x                        x\n      inv Gaussian |   x    x                        x\n      binomial     |   x    x    x     x       x     x    x           x      x\n      Poisson      |   x    x                        x\n      neg binomial |   x    x                        x          x\n      gamma        |   x    x                        x\n\n    Not all of these link functions are currently available.\n\n    Endog and exog are references so that if the data they refer\n    to are already arrays and these arrays are changed, endog and\n    exog will change.\n\n    The "robust" covariance type is the standard "sandwich estimator"\n    (e.g. Liang and Zeger (1986)).  It is the default here and in most\n    other packages.  The "naive" estimator gives smaller standard\n    errors, but is only correct if the working correlation structure\n    is correctly specified.  The "bias reduced" estimator of Mancl and\n    DeRouen (Biometrics, 2001) reduces the downward bias of the robust\n    estimator.\n\n    The robust covariance provided here follows Liang and Zeger (1986)\n    and agrees with R\'s gee implementation.  To obtain the robust\n    standard errors reported in Stata, multiply by sqrt(N / (N - g)),\n    where N is the total sample size, and g is the average group size.\n    %(notes)s\n    Examples\n    --------\n    %(example)s\n'
 _gee_nointercept = '\n    The nominal and ordinal GEE models should not have an intercept\n    (either implicit or explicit).  Use "0 + " in a formula to\n    suppress the intercept.\n'
 _gee_family_doc = '        The default is Gaussian.  To specify the binomial\n        distribution use `family=sm.families.Binomial()`. Each family\n        can take a link instance as an argument.  See\n        statsmodels.genmod.families.family for more information.'
