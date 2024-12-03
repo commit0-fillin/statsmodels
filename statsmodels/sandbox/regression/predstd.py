@@ -13,7 +13,12 @@ def atleast_2dcol(x):
 
     not tested because not used
     """
-    pass
+    x = np.asarray(x)
+    if x.ndim == 0:
+        x = x[None, None]
+    elif x.ndim == 1:
+        x = x[:, None]
+    return x
 
 def wls_prediction_std(res, exog=None, weights=None, alpha=0.05):
     """calculate standard deviation and confidence interval for prediction
@@ -58,4 +63,34 @@ def wls_prediction_std(res, exog=None, weights=None, alpha=0.05):
     Greene p.111 for OLS, extended to WLS by analogy
 
     """
-    pass
+    if exog is None:
+        exog = res.model.exog
+        predicted = res.fittedvalues
+    else:
+        exog = atleast_2dcol(exog)
+        predicted = res.model.predict(exog)
+
+    # Prepare weights
+    if weights is None:
+        weights = 1
+    else:
+        weights = np.asarray(weights)
+        if weights.ndim == 1:
+            weights = weights[:, None]
+
+    # Calculate prediction variance
+    covb = res.cov_params()
+    pred_var = (exog * np.dot(covb, exog.T).T).sum(1)
+    if weights is not None:
+        pred_var /= weights.squeeze()
+
+    # Calculate standard error of prediction
+    predstd = np.sqrt(pred_var)
+
+    # Calculate confidence intervals
+    dist = stats.t(res.df_resid)
+    tppf = dist.ppf(1 - alpha / 2)
+    interval_l = predicted - tppf * predstd
+    interval_u = predicted + tppf * predstd
+
+    return predstd, interval_l, interval_u
