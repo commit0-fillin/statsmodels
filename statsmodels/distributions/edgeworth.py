@@ -30,7 +30,31 @@ def _faa_di_bruno_partitions(n):
     >>> for p in _faa_di_bruno_partitions(4):
     ...     assert 4 == sum(m * k for (m, k) in p)
     """
-    pass
+    if n in _faa_di_bruno_cache:
+        return _faa_di_bruno_cache[n]
+
+    partitions = []
+    
+    def generate_partitions(remaining, max_part, current_partition):
+        if remaining == 0:
+            partitions.append(current_partition)
+            return
+        
+        for i in range(1, min(max_part, remaining) + 1):
+            new_partition = current_partition + [(i, 1)]
+            generate_partitions(remaining - i, i, new_partition)
+    
+    generate_partitions(n, n, [])
+    
+    result = []
+    for partition in partitions:
+        counts = {}
+        for part in partition:
+            counts[part] = counts.get(part, 0) + 1
+        result.append([(m, k) for (m, k) in counts.items()])
+    
+    _faa_di_bruno_cache[n] = result
+    return result
 
 def cumulant_from_moments(momt, n):
     """Compute n-th cumulant given moments.
@@ -49,7 +73,20 @@ def cumulant_from_moments(momt, n):
     kappa : float
         n-th cumulant.
     """
-    pass
+    if n <= 1:
+        raise ValueError("n must be greater than 1")
+    
+    momt = np.asarray(momt)
+    partitions = _faa_di_bruno_partitions(n)
+    
+    kappa = momt[n-1]
+    for partition in partitions[1:]:  # Skip the first partition [(n, 1)]
+        term = (-1)**(len(partition) - 1) * factorial(len(partition) - 1)
+        for m, k in partition:
+            term *= (momt[m-1] / factorial(m)) ** k / factorial(k)
+        kappa -= term
+    
+    return kappa
 _norm_pdf_C = np.sqrt(2 * np.pi)
 
 class ExpandedNormal(rv_continuous):
