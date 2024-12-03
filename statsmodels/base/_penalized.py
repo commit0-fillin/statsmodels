@@ -44,41 +44,83 @@ class PenalizedMixin:
         """
         Log-likelihood of model at params
         """
-        pass
+        if pen_weight is None:
+            pen_weight = self.pen_weight
+        
+        llf = self.loglikeobs(params, **kwds).sum()
+        penalization = self.penal.func(params)
+        return llf - pen_weight * penalization
 
     def loglikeobs(self, params, pen_weight=None, **kwds):
         """
         Log-likelihood of model observations at params
         """
-        pass
+        llf_obs = super().loglikeobs(params, **kwds)
+        if pen_weight is None:
+            pen_weight = self.pen_weight
+        
+        penalization = self.penal.func(params) / len(llf_obs)
+        return llf_obs - pen_weight * penalization
 
     def score_numdiff(self, params, pen_weight=None, method='fd', **kwds):
         """score based on finite difference derivative
         """
-        pass
+        if pen_weight is None:
+            pen_weight = self.pen_weight
+
+        def f(params):
+            return self.loglike(params, pen_weight=pen_weight, **kwds)
+
+        if method == 'fd':
+            return approx_fprime(params, f)
+        elif method == 'cs':
+            return approx_fprime_cs(params, f)
+        else:
+            raise ValueError("method must be 'fd' or 'cs'")
 
     def score(self, params, pen_weight=None, **kwds):
         """
         Gradient of model at params
         """
-        pass
+        if pen_weight is None:
+            pen_weight = self.pen_weight
+        
+        score_obs = self.score_obs(params, **kwds)
+        penalization_deriv = self.penal.deriv(params)
+        return score_obs.sum(axis=0) - pen_weight * penalization_deriv
 
     def score_obs(self, params, pen_weight=None, **kwds):
         """
         Gradient of model observations at params
         """
-        pass
+        score_obs = super().score_obs(params, **kwds)
+        if pen_weight is None:
+            pen_weight = self.pen_weight
+        
+        penalization_deriv = self.penal.deriv(params) / len(score_obs)
+        return score_obs - pen_weight * penalization_deriv
 
     def hessian_numdiff(self, params, pen_weight=None, **kwds):
         """hessian based on finite difference derivative
         """
-        pass
+        if pen_weight is None:
+            pen_weight = self.pen_weight
+
+        def f(params):
+            return self.score(params, pen_weight=pen_weight, **kwds)
+
+        return approx_fprime(params, f)
 
     def hessian(self, params, pen_weight=None, **kwds):
         """
         Hessian of model at params
         """
-        pass
+        if pen_weight is None:
+            pen_weight = self.pen_weight
+        
+        hessian = super().hessian(params, **kwds)
+        penalization_hessian = self.penal.hessian(params)
+        return hessian - pen_weight * penalization_hessian
 
     def fit(self, method=None, trim=None, **kwds):
         """minimize negative penalized log-likelihood
@@ -100,4 +142,16 @@ class PenalizedMixin:
             Specifically, additional optimizer keywords and cov_type related
             keywords can be added.
         """
-        pass
+        if method is None:
+            method = 'bfgs'
+        
+        fit_kwds = kwds.copy()
+        fit_kwds['method'] = method
+        
+        results = super().fit(**fit_kwds)
+        
+        if trim is not None:
+            threshold = 1e-4 if trim is True else trim
+            results.params[np.abs(results.params) < threshold] = 0
+        
+        return results
